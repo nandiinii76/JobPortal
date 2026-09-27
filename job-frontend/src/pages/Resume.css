@@ -1,0 +1,654 @@
+/* =========================================================
+   RESUME PAGE
+   ========================================================= */
+
+.resume-page {
+    min-height: calc(100vh - 70px);
+    background:
+        linear-gradient(
+            rgba(245, 238, 225, 0.94),
+            rgba(245, 238, 225, 0.94)
+        ),
+        radial-gradient(
+            circle at top left,
+            #d8c3a5 0%,
+            transparent 40%
+        );
+
+    padding: 45px 30px 70px;
+
+    color: #3d2b1f;
+
+    font-family:
+        Georgia,
+        "Times New Roman",
+        serif;
+}
+
+
+/* =========================================================
+   MAIN CONTAINER
+   ========================================================= */
+
+.resume-container {
+    width: 100%;
+    max-width: 1050px;
+
+    margin: 0 auto;
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.resume-header {
+    display: flex;
+
+    justify-content: space-between;
+    align-items: flex-start;
+
+    margin-bottom: 30px;
+
+    padding: 10px 5px;
+}
+
+
+.resume-eyebrow {
+    margin: 0 0 8px;
+
+    font-size: 12px;
+
+    font-weight: 700;
+
+    letter-spacing: 3px;
+
+    color: #8b5e3c;
+
+    text-transform: uppercase;
+}
+
+
+.resume-header h1 {
+    margin: 0 0 10px;
+
+    font-size: 42px;
+
+    font-weight: 700;
+
+    color: #3b261b;
+
+    letter-spacing: -0.5px;
+}
+
+
+.resume-header p:not(.resume-eyebrow) {
+    margin: 0;
+
+    max-width: 650px;
+
+    font-size: 16px;
+
+    line-height: 1.7;
+
+    color: #765d4b;
+}
+
+
+/* =========================================================
+   SUCCESS / ERROR
+   ========================================================= */
+
+.resume-success,
+.resume-error {
+    margin-bottom: 22px;
+
+    padding: 14px 18px;
+
+    border-radius: 8px;
+
+    font-size: 14px;
+
+    line-height: 1.5;
+}
+
+
+.resume-success {
+    background: #e8efe2;
+
+    border: 1px solid #b7c9a7;
+
+    color: #38552f;
+}
+
+
+.resume-error {
+    background: #f5e2dc;
+
+    border: 1px solid #d9aaa0;
+
+    color: #813d32;
+}
+
+
+/* =========================================================
+   CARD
+   ========================================================= */
+
+.resume-card {
+    background: #fffaf1;
+
+    border: 1px solid #d8c5aa;
+
+    border-radius: 12px;
+
+    padding: 30px;
+
+    margin-bottom: 28px;
+
+    box-shadow:
+        0 8px 25px rgba(73, 48, 30, 0.08);
+}
+
+
+.resume-card-header {
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: flex-start;
+
+    margin-bottom: 25px;
+
+    padding-bottom: 18px;
+
+    border-bottom: 1px solid #e0d0ba;
+}
+
+
+.resume-card-header h2 {
+    margin: 0 0 7px;
+
+    font-size: 24px;
+
+    color: #4a3020;
+}
+
+
+.resume-card-header p {
+    margin: 0;
+
+    color: #806b58;
+
+    font-size: 14px;
+
+    line-height: 1.6;
+}
+
+
+/* =========================================================
+   RESUME UPLOAD AREA
+   ========================================================= */
+
+.resume-upload-area {
+    padding: 30px;
+
+    border: 2px dashed #c8af90;
+
+    border-radius: 10px;
+
+    background: #faf3e7;
+
+    text-align: center;
+
+    transition: all 0.2s ease;
+}
+
+
+.resume-upload-area:hover {
+    border-color: #9b6d49;
+
+    background: #f8eedf;
+}
+
+
+/* =========================================================
+   FILE INPUT
+   ========================================================= */
+
+.resume-upload-area input[type="file"] {
+    width: 100%;
+
+    max-width: 500px;
+
+    margin: 0 auto 15px;
+
+    padding: 10px;
+
+    font-family:
+        Arial,
+        sans-serif;
+
+    font-size: 14px;
+
+    color: #4c3829;
+
+    background: #fffdf8;
+
+    border: 1px solid #d1bea5;
+
+    border-radius: 7px;
+
+    cursor: pointer;
+}
+
+
+.resume-upload-area input[type="file"]::file-selector-button {
+    margin-right: 12px;
+
+    padding: 9px 14px;
+
+    border: none;
+
+    border-radius: 6px;
+
+    background: #6f4931;
+
+    color: #fffaf1;
+
+    font-family:
+        Georgia,
+        "Times New Roman",
+        serif;
+
+    cursor: pointer;
+
+    transition: background 0.2s ease;
+}
+
+
+.resume-upload-area input[type="file"]::file-selector-button:hover {
+    background: #543622;
+}
+
+
+/* =========================================================
+   SELECTED FILE
+   ========================================================= */
+
+.selected-file {
+    margin: 12px 0;
+
+    color: #5b402e;
+
+    font-size: 14px;
+
+    word-break: break-word;
+}
+
+
+.selected-file strong {
+    color: #6f4931;
+}
+
+
+/* =========================================================
+   UPLOAD HELP
+   ========================================================= */
+
+.upload-help {
+    margin: 10px 0 20px;
+
+    color: #8a735f;
+
+    font-family:
+        Arial,
+        sans-serif;
+
+    font-size: 12px;
+}
+
+
+/* =========================================================
+   FILE ACTIONS
+   ========================================================= */
+
+.resume-file-actions {
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 12px;
+
+    margin-top: 22px;
+}
+
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.resume-primary-button,
+.resume-secondary-button,
+.resume-danger-button {
+    min-height: 42px;
+
+    padding: 11px 20px;
+
+    border-radius: 7px;
+
+    font-family:
+        Georgia,
+        "Times New Roman",
+        serif;
+
+    font-size: 14px;
+
+    font-weight: 600;
+
+    cursor: pointer;
+
+    transition:
+        background 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+
+    border: none;
+}
+
+
+.resume-primary-button {
+    background: #6f4931;
+
+    color: #fffaf1;
+}
+
+
+.resume-primary-button:hover:not(:disabled) {
+    background: #543622;
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        0 5px 12px rgba(73, 48, 30, 0.18);
+}
+
+
+.resume-secondary-button {
+    background: #eadbc7;
+
+    color: #513824;
+
+    border: 1px solid #cbb394;
+}
+
+
+.resume-secondary-button:hover:not(:disabled) {
+    background: #ddc9ae;
+
+    transform: translateY(-1px);
+}
+
+
+.resume-danger-button {
+    background: #f0d7d0;
+
+    color: #813d32;
+
+    border: 1px solid #d7aaa0;
+}
+
+
+.resume-danger-button:hover:not(:disabled) {
+    background: #e8c5bd;
+
+    transform: translateY(-1px);
+}
+
+
+.resume-primary-button:disabled,
+.resume-secondary-button:disabled,
+.resume-danger-button:disabled {
+    opacity: 0.55;
+
+    cursor: not-allowed;
+
+    transform: none;
+
+    box-shadow: none;
+}
+
+
+/* =========================================================
+   FORM
+   ========================================================= */
+
+.resume-field {
+    margin-bottom: 23px;
+}
+
+
+.resume-field label {
+    display: block;
+
+    margin-bottom: 8px;
+
+    color: #513824;
+
+    font-size: 14px;
+
+    font-weight: 700;
+}
+
+
+.resume-field input,
+.resume-field textarea {
+    width: 100%;
+
+    box-sizing: border-box;
+
+    padding: 12px 14px;
+
+    border: 1px solid #d3bfa4;
+
+    border-radius: 7px;
+
+    background: #fffdf8;
+
+    color: #3f2c20;
+
+    font-family:
+        Arial,
+        sans-serif;
+
+    font-size: 14px;
+
+    outline: none;
+
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+}
+
+
+.resume-field input {
+    height: 45px;
+}
+
+
+.resume-field textarea {
+    min-height: 100px;
+
+    resize: vertical;
+
+    line-height: 1.6;
+}
+
+
+.resume-field input:focus,
+.resume-field textarea:focus {
+    border-color: #9b6d49;
+
+    background: #fffaf0;
+
+    box-shadow:
+        0 0 0 3px rgba(155, 109, 73, 0.12);
+}
+
+
+.resume-field input::placeholder,
+.resume-field textarea::placeholder {
+    color: #a18b77;
+}
+
+
+/* =========================================================
+   FORM ACTIONS
+   ========================================================= */
+
+.resume-form-actions {
+    display: flex;
+
+    justify-content: flex-end;
+
+    padding-top: 8px;
+
+    border-top: 1px solid #e0d0ba;
+}
+
+
+/* =========================================================
+   LOADING
+   ========================================================= */
+
+.resume-loading {
+    min-height: 60vh;
+
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    align-items: center;
+
+    text-align: center;
+}
+
+
+.resume-loading h2 {
+    margin: 0 0 8px;
+
+    color: #4a3020;
+
+    font-size: 28px;
+}
+
+
+.resume-loading p {
+    margin: 0;
+
+    color: #806b58;
+
+    font-size: 14px;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+    .resume-page {
+        padding: 30px 18px 50px;
+    }
+
+
+    .resume-header h1 {
+        font-size: 34px;
+    }
+
+
+    .resume-card {
+        padding: 22px;
+    }
+
+
+    .resume-upload-area {
+        padding: 22px 15px;
+    }
+
+
+    .resume-file-actions {
+        flex-direction: column;
+    }
+
+
+    .resume-file-actions button {
+        width: 100%;
+    }
+
+
+    .resume-form-actions {
+        justify-content: stretch;
+    }
+
+
+    .resume-form-actions button {
+        width: 100%;
+    }
+}
+
+
+@media (max-width: 480px) {
+
+    .resume-page {
+        padding: 22px 12px 40px;
+    }
+
+
+    .resume-header {
+        padding: 5px 2px;
+    }
+
+
+    .resume-header h1 {
+        font-size: 29px;
+    }
+
+
+    .resume-header p:not(.resume-eyebrow) {
+        font-size: 14px;
+    }
+
+
+    .resume-card {
+        padding: 18px;
+
+        border-radius: 9px;
+    }
+
+
+    .resume-card-header h2 {
+        font-size: 21px;
+    }
+
+
+    .resume-upload-area {
+        padding: 18px 10px;
+    }
+
+
+    .resume-upload-area input[type="file"] {
+        font-size: 12px;
+    }
+
+
+    .resume-primary-button,
+    .resume-secondary-button,
+    .resume-danger-button {
+        width: 100%;
+    }
+}

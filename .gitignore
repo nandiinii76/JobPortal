@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Backend
+job-backend/target/
+job-backend/uploads/
+job-backend/.idea/
+job-backend/.vscode/
+job-backend/*.iml
+
+# Frontend
+job-frontend/node_modules/
+job-frontend/build/
+job-frontend/dist/
+job-frontend/.idea/
+job-frontend/.vscode/
+job-frontend/*.iml
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+job-backend/.env
+job-backend/.env.*
+!job-backend/.env.example
+
+job-frontend/.env
+job-frontend/.env.*
+!job-frontend/.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Java
+*.class
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
