@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import API from "../services/api";
 
 function Login() {
+
     const navigate = useNavigate();
 
     const [form, setForm] = useState({
@@ -14,14 +15,73 @@ function Login() {
     const [error, setError] = useState("");
 
     // ==========================================
-    // HANDLE INPUT CHANGE
+    // NORMALIZE ROLE
+    // ==========================================
+
+    const normalizeRole = (value) => {
+
+        if (!value) {
+            return "";
+        }
+
+        let normalized = String(value)
+            .trim()
+            .toUpperCase();
+
+        while (normalized.startsWith("ROLE_ROLE_")) {
+            normalized = normalized.substring(5);
+        }
+
+        switch (normalized) {
+
+            case "USER":
+            case "ROLE_USER":
+
+            case "CANDIDATE":
+            case "ROLE_CANDIDATE":
+
+            case "JOBSEEKER":
+            case "JOB_SEEKER":
+            case "ROLE_JOBSEEKER":
+            case "ROLE_JOB_SEEKER":
+
+                return "ROLE_JOB_SEEKER";
+
+            case "EMPLOYER":
+            case "ROLE_EMPLOYER":
+
+                return "ROLE_EMPLOYER";
+
+            case "RECRUITER":
+            case "ROLE_RECRUITER":
+
+                return "ROLE_RECRUITER";
+
+            case "ADMIN":
+            case "ROLE_ADMIN":
+
+                return "ROLE_ADMIN";
+
+            default:
+
+                if (normalized.startsWith("ROLE_")) {
+                    return normalized;
+                }
+
+                return `ROLE_${normalized}`;
+        }
+    };
+
+    // ==========================================
+    // INPUT CHANGE
     // ==========================================
 
     const handleChange = (e) => {
+
         const { name, value } = e.target;
 
-        setForm((previousForm) => ({
-            ...previousForm,
+        setForm((previous) => ({
+            ...previous,
             [name]: value
         }));
 
@@ -29,10 +89,11 @@ function Login() {
     };
 
     // ==========================================
-    // HANDLE LOGIN
+    // LOGIN
     // ==========================================
 
     const handleSubmit = async (e) => {
+
         e.preventDefault();
 
         if (loading) {
@@ -43,254 +104,211 @@ function Login() {
         setLoading(true);
 
         try {
-            // ==========================================
-            // CALL BACKEND LOGIN API
-            // ==========================================
 
-            const res = await API.post("/users/login", {
-                email: form.email.trim(),
-                password: form.password
-            });
+            // ======================================
+            // LOGIN REQUEST
+            // ======================================
 
-            console.log("LOGIN RESPONSE:", res.data);
+            const response = await API.post(
+                "/users/login",
+                {
+                    email: form.email.trim().toLowerCase(),
+                    password: form.password
+                }
+            );
 
-            // ==========================================
-            // READ RESPONSE
-            // ==========================================
+            const data = response.data;
 
-            const token = res.data?.token;
+            // ======================================
+            // READ BACKEND RESPONSE
+            // ======================================
+
+            const token = data?.token;
 
             const userId =
-                res.data?.userId ??
-                res.data?.id ??
-                res.data?.user?.id;
+                data?.userId ??
+                data?.id ??
+                data?.user?.id;
 
-            let role =
-                res.data?.role ??
-                res.data?.user?.role;
+            const role = normalizeRole(
+                data?.role ??
+                data?.user?.role
+            );
 
-            // ==========================================
-            // VALIDATE TOKEN
-            // ==========================================
+            // ======================================
+            // VALIDATE RESPONSE
+            // ======================================
 
             if (!token) {
-                console.error("Login response does not contain token.");
-
                 throw new Error(
-                    "Login successful, but the server did not return an authentication token."
+                    "Login successful, but no authentication token was returned."
                 );
             }
-
-            // ==========================================
-            // VALIDATE USER ID
-            // ==========================================
 
             if (
                 userId === undefined ||
                 userId === null ||
                 userId === ""
             ) {
-                console.error("Login response does not contain user ID.");
-
                 throw new Error(
-                    "Login successful, but the server did not return a user ID."
+                    "Login successful, but no user ID was returned."
                 );
             }
-
-            // ==========================================
-            // VALIDATE ROLE
-            // ==========================================
 
             if (!role) {
-                console.error("Login response does not contain role.");
-
                 throw new Error(
-                    "Login successful, but the server did not return a user role."
+                    "Login successful, but no user role was returned."
                 );
             }
 
-            // ==========================================
-            // NORMALIZE ROLE
-            // ==========================================
-
-            role = String(role).trim().toUpperCase();
-
-            if (!role.startsWith("ROLE_")) {
-                role = `ROLE_${role}`;
-            }
-
-            console.log("USER ID:", userId);
-            console.log("ROLE:", role);
-
-            // ==========================================
-            // CLEAR OLD LOGIN DATA
-            // ==========================================
+            // ======================================
+            // CLEAR OLD SESSION
+            // ======================================
 
             localStorage.removeItem("token");
             localStorage.removeItem("userId");
             localStorage.removeItem("role");
             localStorage.removeItem("user");
 
-            // ==========================================
-            // STORE NEW LOGIN DATA
-            // ==========================================
+            // ======================================
+            // STORE NEW SESSION
+            // ======================================
 
-            localStorage.setItem("token", token);
-            localStorage.setItem("userId", String(userId));
-            localStorage.setItem("role", role);
-
-            // ==========================================
-            // VERIFY STORED DATA
-            // ==========================================
-
-            console.log(
-                "Stored userId:",
-                localStorage.getItem("userId")
+            localStorage.setItem(
+                "token",
+                token
             );
 
-            console.log(
-                "Stored role:",
-                localStorage.getItem("role")
+            localStorage.setItem(
+                "userId",
+                String(userId)
             );
 
-            // ==========================================
-            // REDIRECT BASED ON ROLE
-            // ==========================================
+            localStorage.setItem(
+                "role",
+                role
+            );
+
+            // ======================================
+            // ROLE-BASED REDIRECT
+            // ======================================
 
             switch (role) {
 
-                // ======================================
-                // JOB SEEKER
-                // ======================================
-
                 case "ROLE_JOB_SEEKER":
-                    navigate("/candidate-dashboard", {
-                        replace: true
-                    });
+
+                    navigate(
+                        "/candidate-dashboard",
+                        { replace: true }
+                    );
+
                     break;
-
-                // ======================================
-                // CANDIDATE ALIASES
-                // ======================================
-
-                case "ROLE_CANDIDATE":
-                case "ROLE_USER":
-                    navigate("/candidate-dashboard", {
-                        replace: true
-                    });
-                    break;
-
-                // ======================================
-                // EMPLOYER
-                // ======================================
 
                 case "ROLE_EMPLOYER":
-                    navigate("/employer-dashboard", {
-                        replace: true
-                    });
-                    break;
 
-                // ======================================
-                // RECRUITER
-                // ======================================
+                    navigate(
+                        "/employer-dashboard",
+                        { replace: true }
+                    );
+
+                    break;
 
                 case "ROLE_RECRUITER":
-                    navigate("/recruiter-dashboard", {
-                        replace: true
-                    });
-                    break;
 
-                // ======================================
-                // ADMIN
-                // ======================================
+                    navigate(
+                        "/recruiter-dashboard",
+                        { replace: true }
+                    );
+
+                    break;
 
                 case "ROLE_ADMIN":
-                    navigate("/admin-dashboard", {
-                        replace: true
-                    });
+
+                    // Admin dashboard does not exist yet.
+                    // Use the existing protected dashboard.
+
+                    navigate(
+                        "/dashboard",
+                        { replace: true }
+                    );
+
                     break;
 
-                // ======================================
-                // UNKNOWN ROLE
-                // ======================================
-
                 default:
-                    console.error(
-                        "Unknown user role:",
-                        role
-                    );
 
-                    setError(
-                        `Unknown user role received from server: ${role}`
-                    );
-
-                    // Remove invalid login data
                     localStorage.removeItem("token");
                     localStorage.removeItem("userId");
                     localStorage.removeItem("role");
-                    break;
+
+                    throw new Error(
+                        `Unsupported user role: ${role}`
+                    );
             }
 
         } catch (err) {
 
-            console.error("LOGIN ERROR:", err);
+            console.error(
+                "LOGIN ERROR:",
+                err
+            );
 
-            // ==========================================
-            // HTTP ERROR FROM BACKEND
-            // ==========================================
+            // ======================================
+            // BACKEND ERROR
+            // ======================================
 
             if (err.response) {
-
-                console.error(
-                    "SERVER STATUS:",
-                    err.response.status
-                );
-
-                console.error(
-                    "SERVER RESPONSE:",
-                    err.response.data
-                );
 
                 let message =
                     err.response.data?.message;
 
                 if (!message) {
                     message =
-                        err.response.data?.error;
+                        typeof err.response.data === "string"
+                            ? err.response.data
+                            : err.response.data?.error;
                 }
 
                 if (!message) {
-                    if (err.response.status === 401) {
-                        message =
-                            "Invalid email or password.";
-                    } else if (err.response.status === 403) {
-                        message =
-                            "You are not authorized to log in.";
-                    } else if (err.response.status === 404) {
-                        message =
-                            "Login API was not found.";
-                    } else if (err.response.status >= 500) {
-                        message =
-                            "Server error. Please try again later.";
-                    } else {
-                        message =
-                            "Login failed. Please check your details.";
+
+                    switch (err.response.status) {
+
+                        case 401:
+                            message =
+                                "Invalid email or password.";
+                            break;
+
+                        case 403:
+                            message =
+                                "You are not authorized to log in.";
+                            break;
+
+                        case 404:
+                            message =
+                                "Login API was not found.";
+                            break;
+
+                        default:
+
+                            if (
+                                err.response.status >= 500
+                            ) {
+                                message =
+                                    "Server error. Please try again later.";
+                            } else {
+                                message =
+                                    "Login failed. Please check your details.";
+                            }
                     }
                 }
 
                 setError(message);
             }
 
-            // ==========================================
-            // REQUEST SENT BUT SERVER DID NOT RESPOND
-            // ==========================================
+            // ======================================
+            // SERVER UNAVAILABLE
+            // ======================================
 
             else if (err.request) {
-
-                console.error(
-                    "NO SERVER RESPONSE:",
-                    err.request
-                );
 
                 setError(
                     "Unable to connect to the server. " +
@@ -298,9 +316,9 @@ function Login() {
                 );
             }
 
-            // ==========================================
-            // FRONTEND / OTHER ERROR
-            // ==========================================
+            // ======================================
+            // FRONTEND ERROR
+            // ======================================
 
             else {
 
@@ -327,23 +345,13 @@ function Login() {
 
                 <h2>Login</h2>
 
-                {/* ==================================
-                    ERROR MESSAGE
-                ================================== */}
-
                 {error && (
                     <div className="error-message">
                         {error}
                     </div>
                 )}
 
-                {/* ==================================
-                    LOGIN FORM
-                ================================== */}
-
                 <form onSubmit={handleSubmit}>
-
-                    {/* EMAIL */}
 
                     <input
                         type="email"
@@ -356,8 +364,6 @@ function Login() {
                         disabled={loading}
                     />
 
-                    {/* PASSWORD */}
-
                     <input
                         type="password"
                         name="password"
@@ -369,8 +375,6 @@ function Login() {
                         disabled={loading}
                     />
 
-                    {/* LOGIN BUTTON */}
-
                     <button
                         type="submit"
                         disabled={loading}
@@ -381,10 +385,6 @@ function Login() {
                     </button>
 
                 </form>
-
-                {/* ==================================
-                    REGISTER
-                ================================== */}
 
                 <p>
                     Don't have an account?{" "}

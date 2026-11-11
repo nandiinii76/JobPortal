@@ -1,3 +1,4 @@
+
 package com.job_portal.job.service;
 
 import java.util.List;
@@ -15,211 +16,250 @@ import com.job_portal.job.repository.UserRepository;
 @Transactional
 public class NotificationService {
 
-@Autowired
-private NotificationRepository notificationRepository;
+    @Autowired
+    private NotificationRepository notificationRepository;
 
-@Autowired
-private UserRepository userRepository;
+    @Autowired
+    private UserRepository userRepository;
 
 
-// =====================================================
-// CREATE NOTIFICATION
-// =====================================================
+    // =====================================================
+    // CREATE NOTIFICATION
+    // =====================================================
 
-public Notification createNotification(
-        Long userId,
-        String message,
-        String type) {
+    public Notification createNotification(
+            Long userId,
+            String message,
+            String type) {
 
-    User user = userRepository
-            .findById(userId)
-            .orElse(null);
+        if (userId == null || userId <= 0) {
+            return null;
+        }
 
-    if (user == null) {
-        return null;
+        User user = userRepository
+                .findById(userId)
+                .orElse(null);
+
+        if (user == null) {
+            return null;
+        }
+
+        if (message == null ||
+                message.trim().isEmpty()) {
+
+            return null;
+        }
+
+        String notificationType =
+                (type == null ||
+                        type.trim().isEmpty())
+                        ? "GENERAL"
+                        : type.trim();
+
+        Notification notification =
+                new Notification();
+
+        notification.setUser(user);
+        notification.setType(notificationType);
+        notification.setMessage(message.trim());
+        notification.setRead(false);
+
+        return notificationRepository.save(
+                notification
+        );
     }
 
-    if (message == null ||
-            message.trim().isEmpty()) {
 
-        return null;
+    // =====================================================
+    // GET ALL NOTIFICATIONS FOR USER
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public List<Notification> getUserNotifications(
+            Long userId) {
+
+        if (userId == null ||
+                userId <= 0 ||
+                !userRepository.existsById(userId)) {
+
+            return List.of();
+        }
+
+        return notificationRepository
+                .findByUserIdOrderByCreatedAtDesc(userId);
     }
 
-    Notification notification =
-            new Notification();
 
-    notification.setUser(user);
-    notification.setMessage(message.trim());
-    notification.setRead(false);
+    // =====================================================
+    // GET UNREAD NOTIFICATIONS
+    // =====================================================
 
-    /*
-     * The current Notification entity does not contain
-     * a "type" field.
-     *
-     * Therefore the type parameter is accepted for
-     * compatibility with existing services but is not
-     * stored in the database.
-     */
+    @Transactional(readOnly = true)
+    public List<Notification> getUnreadNotifications(
+            Long userId) {
 
-    return notificationRepository.save(notification);
-}
+        if (userId == null ||
+                userId <= 0 ||
+                !userRepository.existsById(userId)) {
 
+            return List.of();
+        }
 
-// =====================================================
-// GET ALL NOTIFICATIONS FOR USER
-// =====================================================
-
-@Transactional(readOnly = true)
-public List<Notification> getUserNotifications(
-        Long userId) {
-
-    if (userId == null ||
-            !userRepository.existsById(userId)) {
-
-        return List.of();
+        return notificationRepository
+                .findByUserIdAndIsReadFalseOrderByCreatedAtDesc(
+                        userId
+                );
     }
 
-    return notificationRepository
-            .findByUserIdOrderByCreatedAtDesc(userId);
-}
 
+    // =====================================================
+    // COUNT UNREAD NOTIFICATIONS
+    // =====================================================
 
-// =====================================================
-// GET UNREAD NOTIFICATIONS
-// =====================================================
+    @Transactional(readOnly = true)
+    public long getUnreadCount(
+            Long userId) {
 
-@Transactional(readOnly = true)
-public List<Notification> getUnreadNotifications(
-        Long userId) {
+        if (userId == null ||
+                userId <= 0 ||
+                !userRepository.existsById(userId)) {
 
-    if (userId == null ||
-            !userRepository.existsById(userId)) {
+            return 0;
+        }
 
-        return List.of();
+        return notificationRepository
+                .countByUserIdAndIsReadFalse(userId);
     }
 
-    return notificationRepository
-            .findByUserIdAndIsReadFalseOrderByCreatedAtDesc(
-                    userId
-            );
-}
 
+    // =====================================================
+    // MARK ONE NOTIFICATION AS READ
+    // =====================================================
 
-// =====================================================
-// COUNT UNREAD NOTIFICATIONS
-// =====================================================
+    public Notification markAsRead(
+            Long notificationId,
+            Long userId) {
 
-@Transactional(readOnly = true)
-public long getUnreadCount(
-        Long userId) {
+        if (notificationId == null ||
+                notificationId <= 0 ||
+                userId == null ||
+                userId <= 0) {
 
-    if (userId == null ||
-            !userRepository.existsById(userId)) {
+            return null;
+        }
 
-        return 0;
-    }
+        Notification notification =
+                notificationRepository
+                        .findByIdAndUserId(
+                                notificationId,
+                                userId
+                        )
+                        .orElse(null);
 
-    return notificationRepository
-            .countByUserIdAndIsReadFalse(userId);
-}
-
-
-// =====================================================
-// MARK ONE NOTIFICATION AS READ
-// =====================================================
-
-public Notification markAsRead(
-        Long notificationId) {
-
-    Notification notification =
-            notificationRepository
-                    .findById(notificationId)
-                    .orElse(null);
-
-    if (notification == null) {
-        return null;
-    }
-
-    notification.setRead(true);
-
-    return notificationRepository.save(
-            notification
-    );
-}
-
-
-// =====================================================
-// MARK ALL NOTIFICATIONS AS READ
-// =====================================================
-
-public int markAllAsRead(
-        Long userId) {
-
-    if (userId == null ||
-            !userRepository.existsById(userId)) {
-
-        return 0;
-    }
-
-    List<Notification> notifications =
-            notificationRepository
-                    .findByUserIdAndIsReadFalseOrderByCreatedAtDesc(
-                            userId
-                    );
-
-    if (notifications.isEmpty()) {
-        return 0;
-    }
-
-    for (Notification notification :
-            notifications) {
+        if (notification == null) {
+            return null;
+        }
 
         notification.setRead(true);
+
+        return notificationRepository.save(
+                notification
+        );
     }
 
-    notificationRepository.saveAll(
-            notifications
-    );
 
-    return notifications.size();
-}
+    // =====================================================
+    // MARK ALL NOTIFICATIONS AS READ
+    // =====================================================
 
+    public int markAllAsRead(
+            Long userId) {
 
-// =====================================================
-// DELETE ONE NOTIFICATION
-// =====================================================
+        if (userId == null ||
+                userId <= 0 ||
+                !userRepository.existsById(userId)) {
 
-public boolean deleteNotification(
-        Long notificationId) {
+            return 0;
+        }
 
-    if (notificationId == null ||
-            !notificationRepository
-                    .existsById(notificationId)) {
+        List<Notification> notifications =
+                notificationRepository
+                        .findByUserIdAndIsReadFalseOrderByCreatedAtDesc(
+                                userId
+                        );
 
-        return false;
+        if (notifications.isEmpty()) {
+            return 0;
+        }
+
+        for (Notification notification :
+                notifications) {
+
+            notification.setRead(true);
+        }
+
+        notificationRepository.saveAll(
+                notifications
+        );
+
+        return notifications.size();
     }
 
-    notificationRepository.deleteById(
-            notificationId
-    );
 
-    return true;
-}
+    // =====================================================
+    // DELETE ONE NOTIFICATION
+    // =====================================================
 
+    public boolean deleteNotification(
+            Long notificationId,
+            Long userId) {
 
-// =====================================================
-// DELETE ALL USER NOTIFICATIONS
-// =====================================================
+        if (notificationId == null ||
+                notificationId <= 0 ||
+                userId == null ||
+                userId <= 0) {
 
-public void deleteAllNotifications(
-        Long userId) {
+            return false;
+        }
 
-    if (userId == null) {
-        return;
+        boolean belongsToUser =
+                notificationRepository
+                        .existsByIdAndUserId(
+                                notificationId,
+                                userId
+                        );
+
+        if (!belongsToUser) {
+            return false;
+        }
+
+        notificationRepository.deleteById(
+                notificationId
+        );
+
+        return true;
     }
 
-    notificationRepository
-            .deleteByUserId(userId);
+
+    // =====================================================
+    // DELETE ALL USER NOTIFICATIONS
+    // =====================================================
+
+    public void deleteAllNotifications(
+            Long userId) {
+
+        if (userId == null ||
+                userId <= 0) {
+
+            return;
+        }
+
+        if (!userRepository.existsById(userId)) {
+            return;
+        }
+
+        notificationRepository
+                .deleteByUserId(userId);
+    }
 }
 
-}

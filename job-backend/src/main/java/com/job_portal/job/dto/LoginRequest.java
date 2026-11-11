@@ -2,30 +2,58 @@ package com.job_portal.job.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public class LoginRequest {
 
-    @Email(message = "Invalid email")
+    // ==========================================
+    // EMAIL
+    // ==========================================
+
     @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
+    @Size(
+            max = 150,
+            message = "Email cannot exceed 150 characters"
+    )
     private String email;
 
-    @NotBlank(message = "Password required")
+    // ==========================================
+    // PASSWORD
+    // ==========================================
+
+    @NotBlank(message = "Password is required")
+    @Size(
+            max = 100,
+            message = "Password cannot exceed 100 characters"
+    )
     private String password;
 
-    // ======================
-    // GETTERS & SETTERS
-    // ======================
+    // ==========================================
+    // CONSTRUCTOR
+    // ==========================================
+
+    public LoginRequest() {
+    }
+
+    // ==========================================
+    // GETTERS
+    // ==========================================
 
     public String getEmail() {
         return email;
     }
 
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
     public String getPassword() {
         return password;
+    }
+
+    // ==========================================
+    // SETTERS
+    // ==========================================
+
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public void setPassword(String password) {

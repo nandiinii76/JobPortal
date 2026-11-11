@@ -2,42 +2,76 @@ package com.job_portal.job.model;
 
 import jakarta.persistence.*;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Entity
 @Table(name = "resumes")
 public class Resume {
 
+    // ==========================================
+    // PRIMARY KEY
+    // ==========================================
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // ==========================================
+    // RESUME INFORMATION
+    // ==========================================
+
+    @Column(length = 500)
     private String resumeUrl;
 
+    @Column(length = 3000)
     private String skills;
 
+    @Column(length = 3000)
     private String education;
 
+    @Column(length = 5000)
     private String experience;
 
+    @Column(length = 20)
     private String phone;
 
+    @Column(length = 255)
     private String linkedin;
 
+    @Column(length = 255)
     private String github;
 
-    @JsonBackReference
-    @OneToOne
-    @JoinColumn(name = "user_id", unique = true)
+    // ==========================================
+    // USER RELATIONSHIP
+    // ==========================================
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "user_id",
+            unique = true,
+            nullable = false
+    )
+    @JsonIgnore
     private User user;
+
+    // ==========================================
+    // CONSTRUCTORS
+    // ==========================================
 
     public Resume() {
     }
 
-    public Resume(Long id, String resumeUrl, String skills,
-                  String education, String experience,
-                  String phone, String linkedin,
-                  String github, User user) {
+    public Resume(
+            Long id,
+            String resumeUrl,
+            String skills,
+            String education,
+            String experience,
+            String phone,
+            String linkedin,
+            String github,
+            User user) {
+
         this.id = id;
         this.resumeUrl = resumeUrl;
         this.skills = skills;
@@ -48,6 +82,10 @@ public class Resume {
         this.github = github;
         this.user = user;
     }
+
+    // ==========================================
+    // GETTERS AND SETTERS
+    // ==========================================
 
     public Long getId() {
         return id;

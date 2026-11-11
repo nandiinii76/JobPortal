@@ -1,12 +1,10 @@
 package com.job_portal.job.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.web.bind.annotation.*;
-
 import com.job_portal.job.dto.AuthResponse;
+import com.job_portal.job.dto.ChangePasswordRequest;
+import com.job_portal.job.dto.LoginRequest;
+import com.job_portal.job.dto.RegisterRequest;
+import com.job_portal.job.dto.UpdateProfileRequest;
 import com.job_portal.job.dto.UserProfileResponse;
 import com.job_portal.job.dto.UserResponse;
 import com.job_portal.job.model.User;
@@ -14,111 +12,91 @@ import com.job_portal.job.repository.UserRepository;
 import com.job_portal.job.security.JwtUtil;
 import com.job_portal.job.service.UserService;
 
+import jakarta.validation.Valid;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
 @RestController
 @RequestMapping("/users")
-@CrossOrigin(origins = "http://localhost:3000")
 public class UserController {
 
-    @Autowired
-    private UserService service;
+    private final UserService service;
+    private final UserRepository userRepository;
+    private final JwtUtil jwtUtil;
 
-    @Autowired
-    private UserRepository userRepository;
+    public UserController(
+            UserService service,
+            UserRepository userRepository,
+            JwtUtil jwtUtil) {
 
-    @Autowired
-    private AuthenticationManager authenticationManager;
+        this.service = service;
+        this.userRepository = userRepository;
+        this.jwtUtil = jwtUtil;
+    }
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    // ==========================================
+    // =====================================================
     // REGISTER
-    // ==========================================
+    // POST /users/register
+    // =====================================================
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(
-            @RequestBody User user
-    ) {
+    public ResponseEntity<UserResponse> register(
+            @Valid @RequestBody RegisterRequest request) {
 
-        try {
+        User user = new User();
 
-            User savedUser = service.register(user);
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        user.setPassword(request.getPassword());
+        user.setRole(request.getRole());
+        user.setContactNumber(request.getContactNumber());
 
-            return ResponseEntity.ok(
-                    UserResponse.from(savedUser)
-            );
+        User savedUser = service.register(user);
 
-        } catch (Exception e) {
-
-            return ResponseEntity
-                    .badRequest()
-                    .body(e.getMessage());
-        }
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(UserResponse.from(savedUser));
     }
 
-    // ==========================================
+    // =====================================================
     // LOGIN
-    // ==========================================
+    // POST /users/login
+    // =====================================================
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(
-            @RequestBody LoginRequest request
-    ) {
+    public ResponseEntity<AuthResponse> login(
+            @Valid @RequestBody LoginRequest request) {
 
-        try {
+        User user = service.login(
+                request.getEmail(),
+                request.getPassword()
+        );
 
-            authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            request.getEmail(),
-                            request.getPassword()
-                    )
-            );
+        String token = jwtUtil.generateToken(
+                user.getEmail(),
+                user.getRole()
+        );
 
-            /*
-             * Your UserRepository.findByEmail()
-             * returns User directly.
-             */
-            User user = userRepository.findByEmail(
-                    request.getEmail()
-            );
+        AuthResponse response = new AuthResponse(
+                token,
+                user.getId(),
+                user.getRole()
+        );
 
-            if (user == null) {
-
-                return ResponseEntity
-                        .status(401)
-                        .body("User not found");
-            }
-
-            /*
-             * Your JwtUtil.generateToken()
-             * requires email and role.
-             */
-            String token = jwtUtil.generateToken(
-                    user.getEmail(),
-                    user.getRole()
-            );
-
-            AuthResponse response = new AuthResponse(
-                    token,
-                    user.getId(),
-                    user.getRole()
-            );
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-
-            return ResponseEntity
-                    .status(401)
-                    .body("Invalid email or password");
-        }
+        return ResponseEntity.ok(response);
     }
 
-    // ==========================================
-    // USER COUNT
-    // ==========================================
+    // =====================================================
+    // GET USER COUNT
+    // GET /users/count
+    // =====================================================
 
     @GetMapping("/count")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Long> getUserCount() {
 
         return ResponseEntity.ok(
@@ -126,210 +104,200 @@ public class UserController {
         );
     }
 
-    // ==========================================
-    // GET USER PROFILE
-    // ==========================================
+    // =====================================================
+    // GET USER BY ID
+    // GET /users/{userId}
+    // =====================================================
 
     @GetMapping("/{userId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getUser(
-            @PathVariable Long userId
-    ) {
+            @PathVariable Long userId,
+            Authentication authentication) {
 
-        User user = service.getUserById(userId);
+        if (!isAuthenticated(authentication)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Authentication is required.");
+        }
 
-        if (user == null) {
+        Long authenticatedUserId =
+                getAuthenticatedUserId(authentication);
+
+        if (authenticatedUserId == null) {
+            return ResponseEntity
+                    .status(HttpStatus.FORBIDDEN)
+                    .body("Authenticated user could not be found.");
+        }
+
+        // User can access their own profile.
+        // Admin and Super Admin can access any profile.
+        if (!authenticatedUserId.equals(userId)
+                && !isAdmin(authentication)) {
 
             return ResponseEntity
-                    .notFound()
-                    .build();
+                    .status(HttpStatus.FORBIDDEN)
+                    .body("You are not authorized to view this profile.");
         }
+
+        User user = service.getUserById(userId);
 
         return ResponseEntity.ok(
                 UserProfileResponse.from(user)
         );
     }
 
-    // ==========================================
-    // UPDATE USER PROFILE
-    // ==========================================
+    // =====================================================
+    // UPDATE PROFILE
+    // PUT /users/{userId}
+    // =====================================================
 
     @PutMapping("/{userId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> updateProfile(
             @PathVariable Long userId,
-            @RequestBody UserProfileRequest request
-    ) {
+            @Valid @RequestBody UpdateProfileRequest request,
+            Authentication authentication) {
 
-        try {
+        if (!isAuthenticated(authentication)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Authentication is required.");
+        }
 
-            User updatedUser = service.updateProfile(
-                    userId,
-                    request.getName(),
-                    request.getContactNumber()
-            );
+        Long authenticatedUserId =
+                getAuthenticatedUserId(authentication);
 
-            if (updatedUser == null) {
+        if (authenticatedUserId == null) {
+            return ResponseEntity
+                    .status(HttpStatus.FORBIDDEN)
+                    .body("Authenticated user could not be found.");
+        }
 
-                return ResponseEntity
-                        .notFound()
-                        .build();
-            }
-
-            return ResponseEntity.ok(
-                    UserProfileResponse.from(updatedUser)
-            );
-
-        } catch (Exception e) {
+        // User can update their own profile.
+        // Admin and Super Admin can update any profile.
+        if (!authenticatedUserId.equals(userId)
+                && !isAdmin(authentication)) {
 
             return ResponseEntity
-                    .badRequest()
-                    .body(e.getMessage());
+                    .status(HttpStatus.FORBIDDEN)
+                    .body("You are not authorized to update this profile.");
         }
+
+        User updatedUser = service.updateProfile(
+                userId,
+                request.getName(),
+                request.getContactNumber()
+        );
+
+        return ResponseEntity.ok(
+                UserResponse.from(updatedUser)
+        );
     }
 
-    // ==========================================
-    // CHANGE PASSWORD - PUT
-    // ==========================================
+    // =====================================================
+    // CHANGE PASSWORD
+    // PUT /users/{userId}/change-password
+    // =====================================================
 
     @PutMapping("/{userId}/change-password")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> changePassword(
             @PathVariable Long userId,
-            @RequestBody ChangePasswordRequest request
-    ) {
+            @Valid @RequestBody ChangePasswordRequest request,
+            Authentication authentication) {
 
-        try {
+        if (!isAuthenticated(authentication)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Authentication is required.");
+        }
 
-            service.changePassword(
-                    userId,
-                    request.getCurrentPassword(),
-                    request.getNewPassword()
-            );
+        Long authenticatedUserId =
+                getAuthenticatedUserId(authentication);
 
-            return ResponseEntity.ok(
-                    "Password changed successfully"
-            );
-
-        } catch (Exception e) {
+        // Password can only be changed by the account owner.
+        // Admins cannot change another user's password through this endpoint.
+        if (authenticatedUserId == null
+                || !authenticatedUserId.equals(userId)) {
 
             return ResponseEntity
-                    .badRequest()
-                    .body(e.getMessage());
+                    .status(HttpStatus.FORBIDDEN)
+                    .body("You can only change your own password.");
         }
+
+        service.changePassword(
+                userId,
+                request.getCurrentPassword(),
+                request.getNewPassword()
+        );
+
+        return ResponseEntity.ok(
+                "Password changed successfully"
+        );
     }
 
-    // ==========================================
-    // CHANGE PASSWORD - POST
-    // ==========================================
+    // =====================================================
+    // GET AUTHENTICATED USER ID
+    // =====================================================
 
-    @PostMapping("/{userId}/change-password")
-    public ResponseEntity<?> changePasswordPost(
-            @PathVariable Long userId,
-            @RequestBody ChangePasswordRequest request
-    ) {
+    private Long getAuthenticatedUserId(
+            Authentication authentication) {
 
-        try {
-
-            service.changePassword(
-                    userId,
-                    request.getCurrentPassword(),
-                    request.getNewPassword()
-            );
-
-            return ResponseEntity.ok(
-                    "Password changed successfully"
-            );
-
-        } catch (Exception e) {
-
-            return ResponseEntity
-                    .badRequest()
-                    .body(e.getMessage());
+        if (!isAuthenticated(authentication)) {
+            return null;
         }
+
+        String email = authentication.getName();
+
+        if (email == null || email.trim().isEmpty()) {
+            return null;
+        }
+
+        User user = userRepository.findByEmail(
+                email.trim().toLowerCase()
+        );
+
+        if (user == null) {
+            return null;
+        }
+
+        return user.getId();
     }
 
-    // ==========================================
-    // LOGIN REQUEST
-    // ==========================================
+    // =====================================================
+    // AUTHENTICATION CHECK
+    // =====================================================
 
-    public static class LoginRequest {
+    private boolean isAuthenticated(
+            Authentication authentication) {
 
-        private String email;
-        private String password;
-
-        public LoginRequest() {
-        }
-
-        public String getEmail() {
-            return email;
-        }
-
-        public void setEmail(String email) {
-            this.email = email;
-        }
-
-        public String getPassword() {
-            return password;
-        }
-
-        public void setPassword(String password) {
-            this.password = password;
-        }
+        return authentication != null
+                && authentication.isAuthenticated()
+                && authentication.getName() != null
+                && !authentication.getName()
+                        .trim()
+                        .isEmpty();
     }
 
-    // ==========================================
-    // PROFILE REQUEST
-    // ==========================================
+    // =====================================================
+    // ADMIN CHECK
+    // =====================================================
 
-    public static class UserProfileRequest {
+    private boolean isAdmin(
+            Authentication authentication) {
 
-        private String name;
-        private String contactNumber;
-
-        public UserProfileRequest() {
+        if (!isAuthenticated(authentication)) {
+            return false;
         }
 
-        public String getName() {
-            return name;
-        }
-
-        public void setName(String name) {
-            this.name = name;
-        }
-
-        public String getContactNumber() {
-            return contactNumber;
-        }
-
-        public void setContactNumber(String contactNumber) {
-            this.contactNumber = contactNumber;
-        }
-    }
-
-    // ==========================================
-    // CHANGE PASSWORD REQUEST
-    // ==========================================
-
-    public static class ChangePasswordRequest {
-
-        private String currentPassword;
-        private String newPassword;
-
-        public ChangePasswordRequest() {
-        }
-
-        public String getCurrentPassword() {
-            return currentPassword;
-        }
-
-        public void setCurrentPassword(String currentPassword) {
-            this.currentPassword = currentPassword;
-        }
-
-        public String getNewPassword() {
-            return newPassword;
-        }
-
-        public void setNewPassword(String newPassword) {
-            this.newPassword = newPassword;
-        }
+        return authentication.getAuthorities()
+                .stream()
+                .anyMatch(authority ->
+                        authority.getAuthority()
+                                .equals("ROLE_ADMIN")
+                        || authority.getAuthority()
+                                .equals("ROLE_SUPER_ADMIN")
+                );
     }
 }

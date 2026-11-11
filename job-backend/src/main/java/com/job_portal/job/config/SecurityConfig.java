@@ -1,10 +1,10 @@
 package com.job_portal.job.config;
 
+import com.job_portal.job.security.JwtAuthenticationFilter;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -12,10 +12,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import com.job_portal.job.security.JwtFilter;
-
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
+
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter) {
+
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     // =====================================================
     // PASSWORD ENCODER
@@ -23,19 +34,8 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
+
         return new BCryptPasswordEncoder();
-    }
-
-    // =====================================================
-    // AUTHENTICATION MANAGER
-    // =====================================================
-
-    @Bean
-    public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration configuration)
-            throws Exception {
-
-        return configuration.getAuthenticationManager();
     }
 
     // =====================================================
@@ -43,11 +43,16 @@ public class SecurityConfig {
     // =====================================================
 
     @Bean
-    public SecurityFilterChain filterChain(
-            HttpSecurity http,
-            JwtFilter jwtFilter) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http) throws Exception {
 
         http
+
+            // =================================================
+            // CORS
+            // =================================================
+
+            .cors(cors -> {})
 
             // =================================================
             // CSRF
@@ -56,14 +61,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
 
             // =================================================
-            // CORS
-            // =================================================
-
-            .cors(cors -> {
-            })
-
-            // =================================================
-            // SESSION
+            // STATELESS SESSION
             // =================================================
 
             .sessionManagement(session ->
@@ -88,17 +86,7 @@ public class SecurityConfig {
                 ).permitAll()
 
                 // =================================================
-                // CHANGE PASSWORD
-                // Logged-in users only
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.PUT,
-                    "/users/change-password"
-                ).authenticated()
-
-                // =================================================
-                // PUBLIC HOME / TEST
+                // PUBLIC GENERAL
                 // =================================================
 
                 .requestMatchers(
@@ -107,49 +95,113 @@ public class SecurityConfig {
                 ).permitAll()
 
                 // =================================================
-                // PUBLIC JOB APIs
+                // PUBLIC JOB BROWSING
                 // =================================================
 
+                /*
+                 * GET /jobs
+                 * GET /jobs/{id}
+                 * GET /jobs/search
+                 * GET /jobs/count
+                 * GET /jobs/employer/{id}
+                 *
+                 * are public.
+                 *
+                 * POST /jobs
+                 * PUT /jobs/{id}
+                 * DELETE /jobs/{id}
+                 *
+                 * are protected by @PreAuthorize in JobController.
+                 */
+
                 .requestMatchers(
-                    HttpMethod.GET,
                     "/jobs",
                     "/jobs/*",
                     "/jobs/search",
-                    "/jobs/count"
+                    "/jobs/count",
+                    "/jobs/employer/**"
                 ).permitAll()
 
                 // =================================================
-                // PUBLIC COMPANY VIEW
+                // PUBLIC COMPANY PAGES
                 // =================================================
 
                 .requestMatchers(
-                    HttpMethod.GET,
-                    "/company/*"
+                    "/company/**"
                 ).permitAll()
 
                 // =================================================
-                // JOB SEEKER - APPLICATIONS
+                // APPLICATION APIs
                 // =================================================
+
+                // -------------------------------------------------
+                // JOB SEEKER
+                // -------------------------------------------------
 
                 .requestMatchers(
                     "/applications/apply/**",
-                    "/applications/user/**",
-                    "/applications/status/**"
+                    "/applications/my",
+                    "/applications/user/**"
                 ).hasRole("JOB_SEEKER")
 
-                // =================================================
-                // EMPLOYER - APPLICATIONS
-                // =================================================
+                // -------------------------------------------------
+                // EMPLOYER / RECRUITER
+                // -------------------------------------------------
 
                 .requestMatchers(
                     "/applications/job/**",
+                    "/applications/employer",
                     "/applications/employer/**",
                     "/applications/*/status",
+                    "/applications/status/**"
+                ).hasAnyRole(
+                    "EMPLOYER",
+                    "RECRUITER"
+                )
+
+                // -------------------------------------------------
+                // APPLICATION ANALYTICS
+                // -------------------------------------------------
+
+                .requestMatchers(
                     "/applications/analytics/**"
-                ).hasRole("EMPLOYER")
+                ).hasAnyRole(
+                    "EMPLOYER",
+                    "RECRUITER",
+                    "ADMIN",
+                    "SUPER_ADMIN"
+                )
+
+                // -------------------------------------------------
+                // APPLICATION COUNT
+                // -------------------------------------------------
+
+                .requestMatchers(
+                    "/applications/count"
+                ).hasAnyRole(
+                    "ADMIN",
+                    "SUPER_ADMIN"
+                )
+
+                // -------------------------------------------------
+                // SPECIFIC APPLICATION
+                // -------------------------------------------------
+
+                .requestMatchers(
+                    "/applications/*"
+                ).authenticated()
 
                 // =================================================
-                // JOB SEEKER - RESUME
+                // SAVED JOBS
+                // =================================================
+
+                .requestMatchers(
+                    "/saved-jobs/**",
+                    "/saved/**"
+                ).hasRole("JOB_SEEKER")
+
+                // =================================================
+                // RESUME
                 // =================================================
 
                 .requestMatchers(
@@ -157,117 +209,42 @@ public class SecurityConfig {
                 ).hasRole("JOB_SEEKER")
 
                 // =================================================
-                // JOB SEEKER - SAVED JOBS
+                // INTERVIEWS
                 // =================================================
 
                 .requestMatchers(
-                    "/saved-jobs/**"
+                    "/interviews/my/**"
                 ).hasRole("JOB_SEEKER")
-
-                // =================================================
-                // EMPLOYER - JOB MANAGEMENT
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.POST,
-                    "/jobs"
-                ).hasRole("EMPLOYER")
-
-                .requestMatchers(
-                    HttpMethod.PUT,
-                    "/jobs/*"
-                ).hasRole("EMPLOYER")
-
-                .requestMatchers(
-                    HttpMethod.DELETE,
-                    "/jobs/*"
-                ).hasRole("EMPLOYER")
-
-                .requestMatchers(
-                    "/jobs/employer/**"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // JOB SEEKER - INTERVIEWS
-                // =================================================
-
-                .requestMatchers(
-                    "/interviews/candidate/**",
-                    "/interviews/application/**"
-                ).hasRole("JOB_SEEKER")
-
-                // =================================================
-                // EMPLOYER - SCHEDULE INTERVIEW
-                // Matches:
-                // POST /interviews/schedule/{applicationId}
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.POST,
-                    "/interviews/schedule/**"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // EMPLOYER - INTERVIEW LIST
-                // =================================================
 
                 .requestMatchers(
                     "/interviews/employer/**"
-                ).hasRole("EMPLOYER")
+                ).hasAnyRole(
+                    "EMPLOYER",
+                    "RECRUITER"
+                )
 
                 // =================================================
-                // EMPLOYER - UPDATE INTERVIEW
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.PUT,
-                    "/interviews/*"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // EMPLOYER - UPDATE STATUS
+                // EMPLOYER
                 // =================================================
 
                 .requestMatchers(
-                    HttpMethod.PUT,
-                    "/interviews/*/status"
-                ).hasRole("EMPLOYER")
+                    "/employer/**",
+                    "/dashboard/employer/**"
+                ).hasAnyRole(
+                    "EMPLOYER",
+                    "RECRUITER"
+                )
 
                 // =================================================
-                // EMPLOYER - CANCEL
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.PUT,
-                    "/interviews/*/cancel"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // EMPLOYER - COMPLETE
+                // ANALYTICS
                 // =================================================
 
                 .requestMatchers(
-                    HttpMethod.PUT,
-                    "/interviews/*/complete"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // EMPLOYER - DELETE INTERVIEW
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.DELETE,
-                    "/interviews/*"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // GET SINGLE INTERVIEW
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.GET,
-                    "/interviews/*"
-                ).authenticated()
+                    "/analytics/**"
+                ).hasAnyRole(
+                    "EMPLOYER",
+                    "RECRUITER"
+                )
 
                 // =================================================
                 // RECRUITER
@@ -278,29 +255,15 @@ public class SecurityConfig {
                 ).hasRole("RECRUITER")
 
                 // =================================================
-                // EMPLOYER PROFILE
+                // ADMIN
                 // =================================================
 
                 .requestMatchers(
-                    "/employer/**"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // COMPANY MANAGEMENT
-                // =================================================
-
-                .requestMatchers(
-                    HttpMethod.PUT,
-                    "/company/**"
-                ).hasRole("EMPLOYER")
-
-                // =================================================
-                // ANALYTICS
-                // =================================================
-
-                .requestMatchers(
-                    "/analytics/**"
-                ).hasRole("EMPLOYER")
+                    "/admin/**"
+                ).hasAnyRole(
+                    "ADMIN",
+                    "SUPER_ADMIN"
+                )
 
                 // =================================================
                 // NOTIFICATIONS
@@ -311,34 +274,27 @@ public class SecurityConfig {
                 ).authenticated()
 
                 // =================================================
-                // DASHBOARD
+                // USER PROFILE
                 // =================================================
 
                 .requestMatchers(
-                    "/dashboard/**"
-                ).authenticated()
-
-                // =================================================
-                // EMAIL
-                // =================================================
-
-                .requestMatchers(
-                    "/email/**"
+                    "/users/**"
                 ).authenticated()
 
                 // =================================================
                 // EVERYTHING ELSE
                 // =================================================
 
-                .anyRequest().authenticated()
+                .anyRequest()
+                .authenticated()
             )
 
-            // =====================================================
+            // =================================================
             // JWT FILTER
-            // =====================================================
+            // =================================================
 
             .addFilterBefore(
-                jwtFilter,
+                jwtAuthenticationFilter,
                 UsernamePasswordAuthenticationFilter.class
             );
 

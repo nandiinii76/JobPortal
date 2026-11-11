@@ -30,6 +30,7 @@ import EmployerProfile from "./pages/EmployerProfile";
 
 import MyApplications from "./pages/MyApplications";
 import ManageApplications from "./pages/ManageApplications";
+import ApplicationDetails from "./pages/ApplicationDetails";
 
 import MyInterviews from "./pages/MyInterviews";
 import ManageInterviews from "./pages/ManageInterviews";
@@ -187,6 +188,17 @@ function App() {
                     element={
                         <ProtectedRoute role="ROLE_EMPLOYER">
                             <ManageApplications />
+                        </ProtectedRoute>
+                    }
+                />
+
+                {/* ==================== APPLICATION DETAILS ==================== */}
+
+                <Route
+                    path="/applications/:id"
+                    element={
+                        <ProtectedRoute>
+                            <ApplicationDetails />
                         </ProtectedRoute>
                     }
                 />

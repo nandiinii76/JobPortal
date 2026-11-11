@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import API from "../services/api";
@@ -11,10 +12,9 @@ function Notifications() {
     const [markingAll, setMarkingAll] = useState(false);
 
     // ==========================================
-    // GET CURRENT USER
+    // GET AUTH TOKEN
     // ==========================================
 
-    const userId = localStorage.getItem("userId");
     const token = localStorage.getItem("token");
 
     // ==========================================
@@ -23,7 +23,7 @@ function Notifications() {
 
     const loadNotifications = useCallback(async () => {
 
-        if (!userId || !token) {
+        if (!token) {
             setNotifications([]);
             setLoading(false);
             return;
@@ -34,8 +34,10 @@ function Notifications() {
             setLoading(true);
             setError("");
 
+            // User identity comes from JWT.
+            // No userId is sent from the frontend.
             const response = await API.get(
-                `/notifications/user/${userId}`
+                "/notifications"
             );
 
             const data = Array.isArray(response.data)
@@ -76,7 +78,7 @@ function Notifications() {
 
         }
 
-    }, [userId, token]);
+    }, [token]);
 
     // ==========================================
     // INITIAL LOAD
@@ -105,12 +107,12 @@ function Notifications() {
 
     const isNotificationUnread = (notification) => {
 
-        // Backend returns "read" as JSON property
+        // Backend returns "read"
         if (typeof notification.read === "boolean") {
             return !notification.read;
         }
 
-        // Fallback in case API returns "isRead"
+        // Fallback
         if (typeof notification.isRead === "boolean") {
             return !notification.isRead;
         }
@@ -123,6 +125,10 @@ function Notifications() {
     // ==========================================
 
     const markAsRead = async (notificationId) => {
+
+        if (!notificationId) {
+            return;
+        }
 
         try {
 
@@ -154,9 +160,24 @@ function Notifications() {
                 err
             );
 
-            setError(
-                "Unable to mark notification as read."
-            );
+            if (err.response?.status === 401) {
+
+                setError(
+                    "Your session has expired. Please login again."
+                );
+
+            } else if (err.response?.status === 404) {
+
+                setError(
+                    "Notification not found."
+                );
+
+            } else {
+
+                setError(
+                    "Unable to mark notification as read."
+                );
+            }
 
         } finally {
 
@@ -171,17 +192,14 @@ function Notifications() {
 
     const markAllAsRead = async () => {
 
-        if (!userId) {
-            return;
-        }
-
         try {
 
             setMarkingAll(true);
             setError("");
 
+            // User identity comes from JWT.
             await API.put(
-                `/notifications/user/${userId}/read-all`
+                "/notifications/read-all"
             );
 
             setNotifications((previous) =>
@@ -201,9 +219,18 @@ function Notifications() {
                 err
             );
 
-            setError(
-                "Unable to mark all notifications as read."
-            );
+            if (err.response?.status === 401) {
+
+                setError(
+                    "Your session has expired. Please login again."
+                );
+
+            } else {
+
+                setError(
+                    "Unable to mark all notifications as read."
+                );
+            }
 
         } finally {
 
@@ -251,9 +278,24 @@ function Notifications() {
                 err
             );
 
-            setError(
-                "Unable to delete notification."
-            );
+            if (err.response?.status === 401) {
+
+                setError(
+                    "Your session has expired. Please login again."
+                );
+
+            } else if (err.response?.status === 404) {
+
+                setError(
+                    "Notification not found."
+                );
+
+            } else {
+
+                setError(
+                    "Unable to delete notification."
+                );
+            }
 
         } finally {
 
@@ -268,10 +310,6 @@ function Notifications() {
 
     const deleteAllNotifications = async () => {
 
-        if (!userId) {
-            return;
-        }
-
         const confirmed = window.confirm(
             "Are you sure you want to delete all notifications?"
         );
@@ -285,8 +323,9 @@ function Notifications() {
             setMarkingAll(true);
             setError("");
 
+            // User identity comes from JWT.
             await API.delete(
-                `/notifications/user/${userId}`
+                "/notifications"
             );
 
             setNotifications([]);
@@ -300,9 +339,18 @@ function Notifications() {
                 err
             );
 
-            setError(
-                "Unable to delete all notifications."
-            );
+            if (err.response?.status === 401) {
+
+                setError(
+                    "Your session has expired. Please login again."
+                );
+
+            } else {
+
+                setError(
+                    "Unable to delete all notifications."
+                );
+            }
 
         } finally {
 
@@ -358,7 +406,7 @@ function Notifications() {
     // NOT LOGGED IN
     // ==========================================
 
-    if (!token || !userId) {
+    if (!token) {
 
         return (
 

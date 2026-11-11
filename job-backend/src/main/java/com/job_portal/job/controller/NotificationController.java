@@ -1,12 +1,16 @@
+
 package com.job_portal.job.controller;
 
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import com.job_portal.job.model.Notification;
+import com.job_portal.job.model.User;
+import com.job_portal.job.repository.UserRepository;
 import com.job_portal.job.service.NotificationService;
 
 @RestController
@@ -14,191 +18,314 @@ import com.job_portal.job.service.NotificationService;
 @CrossOrigin(origins = "*")
 public class NotificationController {
 
-private final NotificationService notificationService;
+    private final NotificationService notificationService;
+    private final UserRepository userRepository;
 
-// =====================================================
-// CONSTRUCTOR INJECTION
-// =====================================================
+    // =====================================================
+    // CONSTRUCTOR INJECTION
+    // =====================================================
 
-public NotificationController(
-        NotificationService notificationService) {
+    public NotificationController(
+            NotificationService notificationService,
+            UserRepository userRepository) {
 
-    this.notificationService = notificationService;
-}
-
-// =====================================================
-// GET ALL NOTIFICATIONS FOR USER
-// GET /notifications/user/{userId}
-// =====================================================
-
-@GetMapping("/user/{userId}")
-public ResponseEntity<?> getUserNotifications(
-        @PathVariable Long userId) {
-
-    if (userId == null || userId <= 0) {
-
-        return ResponseEntity
-                .badRequest()
-                .body("Valid user ID is required.");
+        this.notificationService = notificationService;
+        this.userRepository = userRepository;
     }
 
-    List<Notification> notifications =
-            notificationService.getUserNotifications(userId);
 
-    return ResponseEntity.ok(notifications);
-}
+    // =====================================================
+    // GET CURRENT USER ID
+    // =====================================================
 
-// =====================================================
-// GET UNREAD NOTIFICATIONS
-// GET /notifications/user/{userId}/unread
-// =====================================================
+    private Long getCurrentUserId(
+            Authentication authentication) {
 
-@GetMapping("/user/{userId}/unread")
-public ResponseEntity<?> getUnreadNotifications(
-        @PathVariable Long userId) {
+        if (authentication == null ||
+                !authentication.isAuthenticated()) {
 
-    if (userId == null || userId <= 0) {
+            return null;
+        }
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid user ID is required.");
+        String email =
+                authentication.getName();
+
+        if (email == null ||
+                email.trim().isEmpty()) {
+
+            return null;
+        }
+
+        User user =
+                userRepository.findByEmail(
+                        email.trim().toLowerCase()
+                );
+
+        if (user == null) {
+            return null;
+        }
+
+        return user.getId();
     }
 
-    List<Notification> notifications =
-            notificationService.getUnreadNotifications(userId);
 
-    return ResponseEntity.ok(notifications);
-}
+    // =====================================================
+    // GET ALL NOTIFICATIONS
+    // GET /notifications
+    // =====================================================
 
-// =====================================================
-// GET UNREAD COUNT
-// GET /notifications/user/{userId}/count
-//
-// Used by Navbar.jsx
-// =====================================================
+    @GetMapping
+    public ResponseEntity<?> getUserNotifications(
+            Authentication authentication) {
 
-@GetMapping("/user/{userId}/count")
-public ResponseEntity<?> getUnreadCount(
-        @PathVariable Long userId) {
+        Long userId =
+                getCurrentUserId(authentication);
 
-    if (userId == null || userId <= 0) {
+        if (userId == null) {
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid user ID is required.");
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        List<Notification> notifications =
+                notificationService
+                        .getUserNotifications(userId);
+
+        return ResponseEntity.ok(
+                notifications
+        );
     }
 
-    long count =
-            notificationService.getUnreadCount(userId);
 
-    return ResponseEntity.ok(count);
-}
+    // =====================================================
+    // GET UNREAD NOTIFICATIONS
+    // GET /notifications/unread
+    // =====================================================
 
-// =====================================================
-// MARK ONE NOTIFICATION AS READ
-// PUT /notifications/{id}/read
-// =====================================================
+    @GetMapping("/unread")
+    public ResponseEntity<?> getUnreadNotifications(
+            Authentication authentication) {
 
-@PutMapping("/{id}/read")
-public ResponseEntity<?> markAsRead(
-        @PathVariable Long id) {
+        Long userId =
+                getCurrentUserId(authentication);
 
-    if (id == null || id <= 0) {
+        if (userId == null) {
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid notification ID is required.");
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        List<Notification> notifications =
+                notificationService
+                        .getUnreadNotifications(userId);
+
+        return ResponseEntity.ok(
+                notifications
+        );
     }
 
-    Notification notification =
-            notificationService.markAsRead(id);
 
-    if (notification == null) {
+    // =====================================================
+    // GET UNREAD COUNT
+    // GET /notifications/count
+    // =====================================================
 
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body("Notification not found.");
+    @GetMapping("/count")
+    public ResponseEntity<?> getUnreadCount(
+            Authentication authentication) {
+
+        Long userId =
+                getCurrentUserId(authentication);
+
+        if (userId == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        long count =
+                notificationService
+                        .getUnreadCount(userId);
+
+        return ResponseEntity.ok(
+                count
+        );
     }
 
-    return ResponseEntity.ok(notification);
-}
 
-// =====================================================
-// MARK ALL NOTIFICATIONS AS READ
-// PUT /notifications/user/{userId}/read-all
-// =====================================================
+    // =====================================================
+    // MARK ONE NOTIFICATION AS READ
+    // PUT /notifications/{id}/read
+    // =====================================================
 
-@PutMapping("/user/{userId}/read-all")
-public ResponseEntity<?> markAllAsRead(
-        @PathVariable Long userId) {
+    @PutMapping("/{id}/read")
+    public ResponseEntity<?> markAsRead(
+            @PathVariable Long id,
+            Authentication authentication) {
 
-    if (userId == null || userId <= 0) {
+        if (id == null || id <= 0) {
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid user ID is required.");
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Valid notification ID is required."
+                    );
+        }
+
+        Long userId =
+                getCurrentUserId(authentication);
+
+        if (userId == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        Notification notification =
+                notificationService.markAsRead(
+                        id,
+                        userId
+                );
+
+        if (notification == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.NOT_FOUND)
+                    .body(
+                            "Notification not found."
+                    );
+        }
+
+        return ResponseEntity.ok(
+                notification
+        );
     }
 
-    int count =
-            notificationService.markAllAsRead(userId);
 
-    return ResponseEntity.ok(
-            count + " notifications marked as read."
-    );
-}
+    // =====================================================
+    // MARK ALL NOTIFICATIONS AS READ
+    // PUT /notifications/read-all
+    // =====================================================
 
-// =====================================================
-// DELETE ONE NOTIFICATION
-// DELETE /notifications/{id}
-// =====================================================
+    @PutMapping("/read-all")
+    public ResponseEntity<?> markAllAsRead(
+            Authentication authentication) {
 
-@DeleteMapping("/{id}")
-public ResponseEntity<?> deleteNotification(
-        @PathVariable Long id) {
+        Long userId =
+                getCurrentUserId(authentication);
 
-    if (id == null || id <= 0) {
+        if (userId == null) {
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid notification ID is required.");
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        int count =
+                notificationService
+                        .markAllAsRead(userId);
+
+        return ResponseEntity.ok(
+                count +
+                " notifications marked as read."
+        );
     }
 
-    boolean deleted =
-            notificationService.deleteNotification(id);
 
-    if (!deleted) {
+    // =====================================================
+    // DELETE ONE NOTIFICATION
+    // DELETE /notifications/{id}
+    // =====================================================
 
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body("Notification not found.");
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteNotification(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        if (id == null || id <= 0) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Valid notification ID is required."
+                    );
+        }
+
+        Long userId =
+                getCurrentUserId(authentication);
+
+        if (userId == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        boolean deleted =
+                notificationService
+                        .deleteNotification(
+                                id,
+                                userId
+                        );
+
+        if (!deleted) {
+
+            return ResponseEntity
+                    .status(HttpStatus.NOT_FOUND)
+                    .body(
+                            "Notification not found."
+                    );
+        }
+
+        return ResponseEntity.ok(
+                "Notification deleted successfully."
+        );
     }
 
-    return ResponseEntity.ok(
-            "Notification deleted successfully."
-    );
-}
 
-// =====================================================
-// DELETE ALL USER NOTIFICATIONS
-// DELETE /notifications/user/{userId}
-// =====================================================
+    // =====================================================
+    // DELETE ALL USER NOTIFICATIONS
+    // DELETE /notifications
+    // =====================================================
 
-@DeleteMapping("/user/{userId}")
-public ResponseEntity<?> deleteAllNotifications(
-        @PathVariable Long userId) {
+    @DeleteMapping
+    public ResponseEntity<?> deleteAllNotifications(
+            Authentication authentication) {
 
-    if (userId == null || userId <= 0) {
+        Long userId =
+                getCurrentUserId(authentication);
 
-        return ResponseEntity
-                .badRequest()
-                .body("Valid user ID is required.");
+        if (userId == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(
+                            "Authenticated user not found."
+                    );
+        }
+
+        notificationService
+                .deleteAllNotifications(userId);
+
+        return ResponseEntity.ok(
+                "All notifications deleted successfully."
+        );
     }
-
-    notificationService.deleteAllNotifications(userId);
-
-    return ResponseEntity.ok(
-            "All notifications deleted successfully."
-    );
 }
 
-}

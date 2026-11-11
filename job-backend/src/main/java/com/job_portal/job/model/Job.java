@@ -10,31 +10,44 @@ public class Job {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false, length = 150)
     private String title;
 
+    @Column(nullable = false, length = 150)
     private String company;
 
+    @Column(nullable = false, length = 150)
     private String location;
 
-    @Column(length = 3000)
+    @Column(nullable = false, length = 3000)
     private String description;
 
+    @Column(nullable = false)
     private Double salary;
 
-    // New Fields
+    @Column(length = 100)
     private String category;
 
+    @Column(length = 50)
     private String jobType;
 
+    @Column(length = 50)
     private String experienceLevel;
 
-    @ManyToOne
-    @JoinColumn(name = "employer_id")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "employer_id", nullable = false)
     private User employer;
 
-    // =====================
-    // Getters and Setters
-    // =====================
+    // =====================================================
+    // CONSTRUCTORS
+    // =====================================================
+
+    public Job() {
+    }
+
+    // =====================================================
+    // GETTERS AND SETTERS
+    // =====================================================
 
     public Long getId() {
         return id;

@@ -1,322 +1,427 @@
 package com.job_portal.job.controller;
 
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import com.job_portal.job.dto.ApplicationDto;
 import com.job_portal.job.model.Application;
 import com.job_portal.job.service.ApplicationService;
 
 @RestController
 @RequestMapping("/applications")
-@CrossOrigin(origins = "*")
 public class ApplicationController {
 
     private final ApplicationService applicationService;
 
-    public ApplicationController(
-            ApplicationService applicationService) {
-
+    public ApplicationController(ApplicationService applicationService) {
         this.applicationService = applicationService;
     }
 
-
     // =====================================================
     // APPLY FOR JOB
-    // POST /applications/apply/{userId}/{jobId}
     // =====================================================
 
-    @PostMapping("/apply/{userId}/{jobId}")
-    public ResponseEntity<?> applyJob(
-            @PathVariable Long userId,
-            @PathVariable Long jobId) {
+    @PostMapping("/apply/{jobId}")
+    @PreAuthorize("hasRole('JOB_SEEKER')")
+    public ResponseEntity<ApplicationDto> applyForJob(
+            @PathVariable Long jobId,
+            Authentication authentication) {
 
-        if (userId == null || jobId == null) {
-
-            return ResponseEntity
-                    .badRequest()
-                    .body("User ID and Job ID are required.");
-        }
+        String email = getAuthenticatedEmail(authentication);
 
         Application application =
-                applicationService.applyJob(
-                        userId,
-                        jobId
-                );
-
-        if (application == null) {
-
-            return ResponseEntity
-                    .badRequest()
-                    .body(
-                        "Unable to apply for this job. "
-                        + "The user may not be a job seeker, "
-                        + "the job may not exist, "
-                        + "or the job may already be applied for."
-                    );
-        }
+                applicationService.applyJob(email, jobId);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
-                .body(application);
+                .body(ApplicationDto.from(application));
     }
 
+    // =====================================================
+    // MY APPLICATIONS
+    // =====================================================
+
+    @GetMapping("/my")
+    @PreAuthorize("hasRole('JOB_SEEKER')")
+    public ResponseEntity<List<ApplicationDto>> getMyApplications(
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+
+        List<Application> applications =
+                applicationService.getApplicationsForUser(email);
+
+        return ResponseEntity.ok(
+                applications.stream()
+                        .map(ApplicationDto::from)
+                        .toList()
+        );
+    }
 
     // =====================================================
     // GET APPLICATION BY ID
-    // GET /applications/{id}
     // =====================================================
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getApplication(
-            @PathVariable Long id) {
+    public ResponseEntity<ApplicationDto> getApplication(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+        String role = getAuthenticatedRole(authentication);
 
         Application application =
                 applicationService.getApplication(id);
 
         if (application == null) {
-
-            return ResponseEntity
-                    .status(HttpStatus.NOT_FOUND)
-                    .body("Application not found.");
+            return ResponseEntity.notFound().build();
         }
 
-        return ResponseEntity.ok(application);
+        Long authenticatedUserId =
+                applicationService.getUserIdByEmail(email);
+
+        boolean allowed = false;
+
+        // Candidate can see only their own application
+        if (isJobSeeker(role)) {
+            allowed = application.getUser() != null
+                    && application.getUser().getId() != null
+                    && application.getUser().getId()
+                            .equals(authenticatedUserId);
+        }
+
+        // Employer / recruiter can see applications
+        // belonging to their jobs
+        if (isEmployerOrRecruiter(role)) {
+
+            Long employerId =
+                    application.getJob() != null
+                            && application.getJob().getEmployer() != null
+                            ? application.getJob()
+                                    .getEmployer()
+                                    .getId()
+                            : null;
+
+            allowed = employerId != null
+                    && employerId.equals(authenticatedUserId);
+        }
+
+        // Admin can view everything
+        if (isAdmin(role)) {
+            allowed = true;
+        }
+
+        if (!allowed) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .build();
+        }
+
+        return ResponseEntity.ok(
+                ApplicationDto.from(application)
+        );
     }
 
-
     // =====================================================
-    // GET APPLICATIONS BY USER
-    // GET /applications/user/{userId}
+    // GET APPLICATIONS FOR USER
     // =====================================================
 
     @GetMapping("/user/{userId}")
-    public ResponseEntity<List<Application>>
-            getApplicationsByUser(
-                    @PathVariable Long userId) {
+    @PreAuthorize("hasRole('JOB_SEEKER')")
+    public ResponseEntity<List<ApplicationDto>> getUserApplications(
+            @PathVariable Long userId,
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+
+        Long authenticatedUserId =
+                applicationService.getUserIdByEmail(email);
+
+        if (!userId.equals(authenticatedUserId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .build();
+        }
+
+        List<Application> applications =
+                applicationService.getApplicationsByUser(userId);
 
         return ResponseEntity.ok(
-                applicationService
-                        .getApplicationsByUser(userId)
+                applications.stream()
+                        .map(ApplicationDto::from)
+                        .toList()
         );
     }
-
 
     // =====================================================
     // GET APPLICATIONS FOR JOB
-    // GET /applications/job/{jobId}
     // =====================================================
 
     @GetMapping("/job/{jobId}")
-    public ResponseEntity<List<Application>>
-            getApplicationsByJob(
-                    @PathVariable Long jobId) {
+    @PreAuthorize("hasAnyRole('EMPLOYER', 'RECRUITER')")
+    public ResponseEntity<List<ApplicationDto>> getJobApplications(
+            @PathVariable Long jobId,
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+
+        if (!applicationService.isJobOwnedByEmployer(
+                jobId,
+                email)) {
+
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .build();
+        }
+
+        List<Application> applications =
+                applicationService.getApplicationsByJob(jobId);
 
         return ResponseEntity.ok(
-                applicationService
-                        .getApplicationsByJob(jobId)
+                applications.stream()
+                        .map(ApplicationDto::from)
+                        .toList()
         );
     }
 
-
     // =====================================================
-    // GET APPLICATIONS BY EMPLOYER
-    // GET /applications/employer/{employerId}
+    // MY EMPLOYER APPLICATIONS
     // =====================================================
 
-    @GetMapping("/employer/{employerId}")
-    public ResponseEntity<List<Application>>
-            getApplicationsByEmployer(
-                    @PathVariable Long employerId) {
+    @GetMapping("/employer")
+    @PreAuthorize("hasAnyRole('EMPLOYER', 'RECRUITER')")
+    public ResponseEntity<List<ApplicationDto>> getMyEmployerApplications(
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+
+        List<Application> applications =
+                applicationService.getApplicationsForEmployer(email);
 
         return ResponseEntity.ok(
-                applicationService
-                        .getApplicationsByEmployer(
-                                employerId
-                        )
+                applications.stream()
+                        .map(ApplicationDto::from)
+                        .toList()
         );
     }
-
 
     // =====================================================
     // UPDATE APPLICATION STATUS
-    //
-    // PUT
-    // /applications/{id}/status?status=SHORTLISTED
     // =====================================================
 
     @PutMapping("/{id}/status")
-    public ResponseEntity<?> updateStatus(
+    @PreAuthorize("hasAnyRole('EMPLOYER', 'RECRUITER')")
+    public ResponseEntity<ApplicationDto> updateApplicationStatus(
             @PathVariable Long id,
-            @RequestParam String status) {
+            @RequestParam String status,
+            Authentication authentication) {
 
-        if (status == null ||
-                status.trim().isEmpty()) {
+        String email = getAuthenticatedEmail(authentication);
 
-            return ResponseEntity
-                    .badRequest()
-                    .body("Application status is required.");
-        }
-
-        Application updated =
-                applicationService.updateStatus(
+        Application application =
+                applicationService.updateStatusForEmployer(
                         id,
-                        status
+                        status,
+                        email
                 );
 
-        if (updated == null) {
-
-            return ResponseEntity
-                    .badRequest()
-                    .body(
-                        "Invalid application or application status."
-                    );
-        }
-
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(
+                ApplicationDto.from(application)
+        );
     }
 
-
     // =====================================================
-    // GET APPLICATIONS BY STATUS
-    // GET /applications/status/{status}
+    // APPLICATIONS BY STATUS
     // =====================================================
 
     @GetMapping("/status/{status}")
-    public ResponseEntity<List<Application>>
-            getApplicationsByStatus(
-                    @PathVariable String status) {
+    @PreAuthorize("hasAnyRole('EMPLOYER', 'RECRUITER')")
+    public ResponseEntity<List<ApplicationDto>> getApplicationsByStatus(
+            @PathVariable String status,
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
+
+        List<Application> applications =
+                applicationService.getApplicationsByEmployerAndStatus(
+                        email,
+                        status
+                );
 
         return ResponseEntity.ok(
-                applicationService
-                        .getApplicationsByStatus(status)
+                applications.stream()
+                        .map(ApplicationDto::from)
+                        .toList()
         );
     }
-
 
     // =====================================================
     // DELETE APPLICATION
-    // DELETE /applications/{id}
     // =====================================================
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<String>
-            deleteApplication(
-                    @PathVariable Long id) {
+    @PreAuthorize("hasRole('JOB_SEEKER')")
+    public ResponseEntity<String> deleteApplication(
+            @PathVariable Long id,
+            Authentication authentication) {
 
-        boolean deleted =
-                applicationService
-                        .deleteApplication(id);
+        String email = getAuthenticatedEmail(authentication);
 
-        if (!deleted) {
-
-            return ResponseEntity
-                    .status(HttpStatus.NOT_FOUND)
-                    .body(
-                        "Application not found."
-                    );
-        }
+        applicationService.deleteApplicationForUser(
+                id,
+                email
+        );
 
         return ResponseEntity.ok(
-                "Application deleted successfully."
+                "Application deleted successfully"
         );
     }
 
-
     // =====================================================
-    // TOTAL APPLICATIONS
-    // GET /applications/count
+    // ADMIN - TOTAL APPLICATION COUNT
     // =====================================================
 
     @GetMapping("/count")
-    public ResponseEntity<Long>
-            totalApplications() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getApplicationCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalApplications()
+                applicationService.getTotalApplications()
         );
     }
 
-
     // =====================================================
-    // APPLICATION ANALYTICS
+    // ADMIN - STATUS COUNTS
     // =====================================================
 
-    @GetMapping("/analytics/pending")
-    public ResponseEntity<Long>
-            totalPending() {
+    @GetMapping("/analytics/applied")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getAppliedCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalPending()
+                applicationService.countByStatus("APPLIED")
         );
     }
-
 
     @GetMapping("/analytics/shortlisted")
-    public ResponseEntity<Long>
-            totalShortlisted() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getShortlistedCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalShortlisted()
+                applicationService.countByStatus("SHORTLISTED")
         );
     }
-
 
     @GetMapping("/analytics/interview")
-    public ResponseEntity<Long>
-            totalInterview() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getInterviewCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalInterview()
+                applicationService.countByStatus("INTERVIEW")
         );
     }
-
 
     @GetMapping("/analytics/rejected")
-    public ResponseEntity<Long>
-            totalRejected() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getRejectedCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalRejected()
+                applicationService.countByStatus("REJECTED")
         );
     }
-
 
     @GetMapping("/analytics/hired")
-    public ResponseEntity<Long>
-            totalHired() {
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Long> getHiredCount() {
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalHired()
+                applicationService.countByStatus("HIRED")
         );
     }
 
-
     // =====================================================
-    // EMPLOYER APPLICATION COUNT
-    //
-    // GET
-    // /applications/analytics/employer/{employerId}
+    // EMPLOYER ANALYTICS
     // =====================================================
 
-    @GetMapping("/analytics/employer/{employerId}")
-    public ResponseEntity<Long>
-            employerApplicationCount(
-                    @PathVariable Long employerId) {
+    @GetMapping("/analytics/employer")
+    @PreAuthorize("hasAnyRole('EMPLOYER', 'RECRUITER')")
+    public ResponseEntity<?> getEmployerAnalytics(
+            Authentication authentication) {
+
+        String email = getAuthenticatedEmail(authentication);
 
         return ResponseEntity.ok(
-                applicationService
-                        .totalApplications(
-                                employerId
-                        )
+                applicationService.getEmployerAnalytics(email)
         );
+    }
+
+    // =====================================================
+    // AUTHENTICATION HELPERS
+    // =====================================================
+
+    private String getAuthenticatedEmail(
+            Authentication authentication) {
+
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication.getName() == null
+                || authentication.getName().trim().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Authentication is required"
+            );
+        }
+
+        return authentication.getName()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private String getAuthenticatedRole(
+            Authentication authentication) {
+
+        if (authentication == null
+                || authentication.getAuthorities() == null
+                || authentication.getAuthorities().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Authentication role is required"
+            );
+        }
+
+        return authentication.getAuthorities()
+                .iterator()
+                .next()
+                .getAuthority()
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isJobSeeker(String role) {
+
+        return role.equals("ROLE_JOB_SEEKER")
+                || role.equals("JOB_SEEKER")
+                || role.equals("ROLE_USER")
+                || role.equals("USER")
+                || role.equals("ROLE_CANDIDATE")
+                || role.equals("CANDIDATE");
+    }
+
+    private boolean isEmployerOrRecruiter(String role) {
+
+        return role.equals("ROLE_EMPLOYER")
+                || role.equals("EMPLOYER")
+                || role.equals("ROLE_RECRUITER")
+                || role.equals("RECRUITER");
+    }
+
+    private boolean isAdmin(String role) {
+
+        return role.equals("ROLE_ADMIN")
+                || role.equals("ADMIN")
+                || role.equals("ROLE_SUPER_ADMIN")
+                || role.equals("SUPER_ADMIN");
     }
 }

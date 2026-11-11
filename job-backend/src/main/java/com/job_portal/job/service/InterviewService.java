@@ -7,8 +7,10 @@ import org.springframework.stereotype.Service;
 
 import com.job_portal.job.model.Application;
 import com.job_portal.job.model.Interview;
+import com.job_portal.job.model.User;
 import com.job_portal.job.repository.ApplicationRepository;
 import com.job_portal.job.repository.InterviewRepository;
+import com.job_portal.job.repository.UserRepository;
 
 import jakarta.transaction.Transactional;
 
@@ -18,28 +20,131 @@ public class InterviewService {
 
     private final InterviewRepository interviewRepository;
     private final ApplicationRepository applicationRepository;
+    private final UserRepository userRepository;
     private final EmailService emailService;
     private final NotificationService notificationService;
 
     // =====================================================
-    // CONSTRUCTOR INJECTION
+    // CONSTRUCTOR
     // =====================================================
 
     public InterviewService(
             InterviewRepository interviewRepository,
             ApplicationRepository applicationRepository,
+            UserRepository userRepository,
             EmailService emailService,
             NotificationService notificationService) {
 
         this.interviewRepository = interviewRepository;
         this.applicationRepository = applicationRepository;
+        this.userRepository = userRepository;
         this.emailService = emailService;
         this.notificationService = notificationService;
     }
 
     // =====================================================
+    // GET USER BY EMAIL
+    // =====================================================
+
+    private User getUserByEmail(String email) {
+
+        if (email == null || email.trim().isEmpty()) {
+            return null;
+        }
+
+        return userRepository.findByEmail(
+                email.trim().toLowerCase()
+        );
+    }
+
+    // =====================================================
+    // CHECK EMPLOYER OWNERSHIP
+    // =====================================================
+
+    private boolean employerOwnsApplication(
+            Application application,
+            String email) {
+
+        if (application == null
+                || application.getJob() == null
+                || application.getJob().getEmployer() == null) {
+
+            return false;
+        }
+
+        User employer = application.getJob().getEmployer();
+
+        if (employer.getEmail() == null || email == null) {
+            return false;
+        }
+
+        return employer.getEmail()
+                .equalsIgnoreCase(email.trim());
+    }
+
+    // =====================================================
+    // CHECK CANDIDATE OWNERSHIP
+    // =====================================================
+
+    private boolean candidateOwnsApplication(
+            Application application,
+            String email) {
+
+        if (application == null
+                || application.getUser() == null
+                || application.getUser().getEmail() == null
+                || email == null) {
+
+            return false;
+        }
+
+        return application.getUser()
+                .getEmail()
+                .equalsIgnoreCase(email.trim());
+    }
+
+    // =====================================================
+    // CHECK EMPLOYER OWNS INTERVIEW
+    // =====================================================
+
+    private boolean employerOwnsInterview(
+            Interview interview,
+            String email) {
+
+        if (interview == null
+                || interview.getApplication() == null) {
+
+            return false;
+        }
+
+        return employerOwnsApplication(
+                interview.getApplication(),
+                email
+        );
+    }
+
+    // =====================================================
+    // CHECK CANDIDATE OWNS INTERVIEW
+    // =====================================================
+
+    private boolean candidateOwnsInterview(
+            Interview interview,
+            String email) {
+
+        if (interview == null
+                || interview.getApplication() == null) {
+
+            return false;
+        }
+
+        return candidateOwnsApplication(
+                interview.getApplication(),
+                email
+        );
+    }
+
+    // =====================================================
     // SCHEDULE INTERVIEW
-    // POST /interviews/schedule/{applicationId}
     // =====================================================
 
     public Interview scheduleInterview(
@@ -50,9 +155,108 @@ public class InterviewService {
             return null;
         }
 
-        // -------------------------------------------------
-        // FIND APPLICATION
-        // -------------------------------------------------
+        Application application = applicationRepository
+                .findById(applicationId)
+                .orElse(null);
+
+        if (application == null) {
+            return null;
+        }
+
+        if (interviewRepository.existsByApplicationId(applicationId)) {
+            return null;
+        }
+
+        if (!isValidInterviewDetails(interview)) {
+            return null;
+        }
+
+        if (interview.getInterviewDate()
+                .isBefore(LocalDate.now())) {
+
+            return null;
+        }
+
+        String mode = interview.getInterviewMode()
+                .trim()
+                .toUpperCase();
+
+        interview.setInterviewMode(mode);
+
+        if ("ONLINE".equals(mode)) {
+
+            interview.setMeetingLink(
+                    interview.getMeetingLink().trim()
+            );
+
+            interview.setLocation(null);
+
+        } else {
+
+            interview.setLocation(
+                    interview.getLocation().trim()
+            );
+
+            interview.setMeetingLink(null);
+        }
+
+        interview.setInterviewerName(
+                interview.getInterviewerName().trim()
+        );
+
+        if (interview.getInterviewerEmail() != null) {
+
+            String email =
+                    interview.getInterviewerEmail().trim();
+
+            interview.setInterviewerEmail(
+                    email.isEmpty() ? null : email
+            );
+        }
+
+        interview.setApplication(application);
+        interview.setStatus("SCHEDULED");
+
+        application.setStatus("INTERVIEW");
+        applicationRepository.save(application);
+
+        Interview savedInterview =
+                interviewRepository.save(interview);
+
+        sendNotificationSafely(
+                application,
+                "Your interview for "
+                        + getJobTitle(application)
+                        + " has been scheduled.",
+                "INTERVIEW"
+        );
+
+        sendInterviewEmailSafely(
+                application,
+                savedInterview,
+                "Interview Scheduled - "
+                        + getJobTitle(application),
+                "Your interview has been scheduled successfully."
+        );
+
+        return savedInterview;
+    }
+
+    // =====================================================
+    // SECURED SCHEDULE INTERVIEW
+    // =====================================================
+
+    public Interview scheduleInterviewForEmployer(
+            Long applicationId,
+            Interview interview,
+            String employerEmail) {
+
+        if (applicationId == null
+                || employerEmail == null
+                || employerEmail.trim().isEmpty()) {
+
+            return null;
+        }
 
         Application application =
                 applicationRepository
@@ -63,156 +267,24 @@ public class InterviewService {
             return null;
         }
 
-        // -------------------------------------------------
-        // PREVENT DUPLICATE INTERVIEW
-        // -------------------------------------------------
-
-        if (interviewRepository.existsByApplicationId(applicationId)) {
-            return null;
-        }
-
-        // -------------------------------------------------
-        // VALIDATE INTERVIEW
-        // -------------------------------------------------
-
-        if (!isValidInterviewDetails(interview)) {
-            return null;
-        }
-
-        // -------------------------------------------------
-        // VALIDATE DATE
-        // -------------------------------------------------
-
-        if (interview.getInterviewDate().isBefore(LocalDate.now())) {
-            return null;
-        }
-
-        // -------------------------------------------------
-        // NORMALIZE MODE
-        // -------------------------------------------------
-
-        String mode =
-                interview.getInterviewMode()
-                        .trim()
-                        .toUpperCase();
-
-        interview.setInterviewMode(mode);
-
-        // -------------------------------------------------
-        // ONLINE
-        // -------------------------------------------------
-
-        if ("ONLINE".equals(mode)) {
-
-            interview.setMeetingLink(
-                    interview.getMeetingLink().trim()
-            );
-
-            interview.setLocation(null);
-        }
-
-        // -------------------------------------------------
-        // OFFLINE
-        // -------------------------------------------------
-
-        if ("OFFLINE".equals(mode)) {
-
-            interview.setLocation(
-                    interview.getLocation().trim()
-            );
-
-            interview.setMeetingLink(null);
-        }
-
-        // -------------------------------------------------
-        // INTERVIEWER
-        // -------------------------------------------------
-
-        interview.setInterviewerName(
-                interview.getInterviewerName().trim()
-        );
-
-        // -------------------------------------------------
-        // INTERVIEWER EMAIL
-        // -------------------------------------------------
-
-        if (interview.getInterviewerEmail() != null) {
-
-            String interviewerEmail =
-                    interview.getInterviewerEmail().trim();
-
-            interview.setInterviewerEmail(
-                    interviewerEmail.isEmpty()
-                            ? null
-                            : interviewerEmail
-            );
-        }
-
-        // -------------------------------------------------
-        // SET APPLICATION
-        // -------------------------------------------------
-
-        interview.setApplication(application);
-
-        // -------------------------------------------------
-        // INITIAL STATUS
-        // -------------------------------------------------
-
-        interview.setStatus("SCHEDULED");
-
-        // -------------------------------------------------
-        // UPDATE APPLICATION STATUS
-        // -------------------------------------------------
-
-        application.setStatus("INTERVIEW");
-
-        applicationRepository.save(application);
-
-        // -------------------------------------------------
-        // SAVE INTERVIEW
-        // -------------------------------------------------
-
-        Interview savedInterview =
-                interviewRepository.save(interview);
-
-        // -------------------------------------------------
-        // NOTIFICATION
-        // -------------------------------------------------
-
-        sendNotificationSafely(
+        if (!employerOwnsApplication(
                 application,
+                employerEmail)) {
 
-                "Your interview for "
-                        + getJobTitle(application)
-                        + " has been scheduled.",
+            return null;
+        }
 
-                "INTERVIEW"
+        return scheduleInterview(
+                applicationId,
+                interview
         );
-
-        // -------------------------------------------------
-        // EMAIL
-        // -------------------------------------------------
-
-        sendInterviewEmailSafely(
-                application,
-                savedInterview,
-
-                "Interview Scheduled - "
-                        + getJobTitle(application),
-
-                "Your interview has been scheduled successfully."
-        );
-
-        return savedInterview;
     }
 
     // =====================================================
     // GET INTERVIEW BY APPLICATION
-    // GET /interviews/application/{applicationId}
     // =====================================================
 
-    public Interview getInterview(
-            Long applicationId) {
+    public Interview getInterview(Long applicationId) {
 
         if (applicationId == null) {
             return null;
@@ -224,12 +296,49 @@ public class InterviewService {
     }
 
     // =====================================================
-    // GET INTERVIEW BY ID
-    // GET /interviews/{id}
+    // SECURED GET INTERVIEW BY APPLICATION
     // =====================================================
 
-    public Interview getInterviewById(
-            Long interviewId) {
+    public Interview getInterviewForUser(
+            Long applicationId,
+            String email) {
+
+        if (applicationId == null || email == null) {
+            return null;
+        }
+
+        Application application =
+                applicationRepository
+                        .findById(applicationId)
+                        .orElse(null);
+
+        if (application == null) {
+            return null;
+        }
+
+        boolean allowed =
+                candidateOwnsApplication(
+                        application,
+                        email
+                )
+                ||
+                employerOwnsApplication(
+                        application,
+                        email
+                );
+
+        if (!allowed) {
+            return null;
+        }
+
+        return getInterview(applicationId);
+    }
+
+    // =====================================================
+    // GET INTERVIEW BY ID
+    // =====================================================
+
+    public Interview getInterviewById(Long interviewId) {
 
         if (interviewId == null) {
             return null;
@@ -238,6 +347,43 @@ public class InterviewService {
         return interviewRepository
                 .findById(interviewId)
                 .orElse(null);
+    }
+
+    // =====================================================
+    // SECURED GET INTERVIEW BY ID
+    // =====================================================
+
+    public Interview getInterviewForUserById(
+            Long interviewId,
+            String email) {
+
+        if (interviewId == null || email == null) {
+            return null;
+        }
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null) {
+            return null;
+        }
+
+        boolean allowed =
+                candidateOwnsInterview(
+                        interview,
+                        email
+                )
+                ||
+                employerOwnsInterview(
+                        interview,
+                        email
+                );
+
+        if (!allowed) {
+            return null;
+        }
+
+        return interview;
     }
 
     // =====================================================
@@ -258,6 +404,22 @@ public class InterviewService {
     }
 
     // =====================================================
+    // SECURED CANDIDATE INTERVIEWS
+    // =====================================================
+
+    public List<Interview> getCandidateInterviewsForUser(
+            String email) {
+
+        User user = getUserByEmail(email);
+
+        if (user == null) {
+            return List.of();
+        }
+
+        return getCandidateInterviews(user.getId());
+    }
+
+    // =====================================================
     // GET EMPLOYER INTERVIEWS
     // =====================================================
 
@@ -275,32 +437,43 @@ public class InterviewService {
     }
 
     // =====================================================
+    // SECURED EMPLOYER INTERVIEWS
+    // =====================================================
+
+    public List<Interview> getEmployerInterviewsForUser(
+            String email) {
+
+        User user = getUserByEmail(email);
+
+        if (user == null) {
+            return List.of();
+        }
+
+        return getEmployerInterviews(user.getId());
+    }
+
+    // =====================================================
     // GET ALL INTERVIEWS
+    // ADMIN ONLY
     // =====================================================
 
     public List<Interview> getAllInterviews() {
-
         return interviewRepository.findAll();
     }
 
     // =====================================================
     // UPDATE INTERVIEW
-    // PUT /interviews/{id}
     // =====================================================
 
     public Interview updateInterview(
             Long interviewId,
             Interview updatedInterview) {
 
-        if (interviewId == null ||
-                updatedInterview == null) {
+        if (interviewId == null
+                || updatedInterview == null) {
 
             return null;
         }
-
-        // -------------------------------------------------
-        // FIND EXISTING INTERVIEW
-        // -------------------------------------------------
 
         Interview interview =
                 interviewRepository
@@ -311,28 +484,15 @@ public class InterviewService {
             return null;
         }
 
-        // -------------------------------------------------
-        // VALIDATE
-        // -------------------------------------------------
-
         if (!isValidInterviewDetails(updatedInterview)) {
             return null;
         }
 
-        // -------------------------------------------------
-        // DATE
-        // -------------------------------------------------
-
-        if (updatedInterview
-                .getInterviewDate()
+        if (updatedInterview.getInterviewDate()
                 .isBefore(LocalDate.now())) {
 
             return null;
         }
-
-        // -------------------------------------------------
-        // MODE
-        // -------------------------------------------------
 
         String mode =
                 updatedInterview
@@ -350,10 +510,6 @@ public class InterviewService {
 
         interview.setInterviewMode(mode);
 
-        // -------------------------------------------------
-        // ONLINE
-        // -------------------------------------------------
-
         if ("ONLINE".equals(mode)) {
 
             interview.setMeetingLink(
@@ -363,13 +519,8 @@ public class InterviewService {
             );
 
             interview.setLocation(null);
-        }
 
-        // -------------------------------------------------
-        // OFFLINE
-        // -------------------------------------------------
-
-        if ("OFFLINE".equals(mode)) {
+        } else {
 
             interview.setLocation(
                     updatedInterview
@@ -380,19 +531,11 @@ public class InterviewService {
             interview.setMeetingLink(null);
         }
 
-        // -------------------------------------------------
-        // INTERVIEWER
-        // -------------------------------------------------
-
         interview.setInterviewerName(
                 updatedInterview
                         .getInterviewerName()
                         .trim()
         );
-
-        // -------------------------------------------------
-        // INTERVIEWER EMAIL
-        // -------------------------------------------------
 
         if (updatedInterview.getInterviewerEmail() != null) {
 
@@ -402,38 +545,26 @@ public class InterviewService {
                             .trim();
 
             interview.setInterviewerEmail(
-                    email.isEmpty()
-                            ? null
-                            : email
+                    email.isEmpty() ? null : email
             );
 
         } else {
-
             interview.setInterviewerEmail(null);
         }
-
-        // -------------------------------------------------
-        // NOTES
-        // -------------------------------------------------
 
         interview.setNotes(
                 updatedInterview.getNotes()
         );
-
-        // -------------------------------------------------
-        // STATUS
-        // -------------------------------------------------
 
         String currentStatus =
                 normalizeStatus(
                         interview.getStatus()
                 );
 
-        String newStatus =
-                currentStatus;
+        String newStatus = currentStatus;
 
-        if (updatedInterview.getStatus() != null &&
-                !updatedInterview.getStatus()
+        if (updatedInterview.getStatus() != null
+                && !updatedInterview.getStatus()
                         .trim()
                         .isEmpty()) {
 
@@ -446,39 +577,21 @@ public class InterviewService {
                 return null;
             }
 
-            // ---------------------------------------------
-            // PREVENT COMPLETED -> CANCELLED
-            // ---------------------------------------------
-
-            if ("COMPLETED".equals(currentStatus) &&
-                    "CANCELLED".equals(newStatus)) {
-
+            if ("COMPLETED".equals(currentStatus)
+                    && "CANCELLED".equals(newStatus)) {
                 return null;
             }
 
-            // ---------------------------------------------
-            // PREVENT CANCELLED -> COMPLETED
-            // ---------------------------------------------
-
-            if ("CANCELLED".equals(currentStatus) &&
-                    "COMPLETED".equals(newStatus)) {
-
+            if ("CANCELLED".equals(currentStatus)
+                    && "COMPLETED".equals(newStatus)) {
                 return null;
             }
 
             interview.setStatus(newStatus);
         }
 
-        // -------------------------------------------------
-        // SAVE
-        // -------------------------------------------------
-
         Interview savedInterview =
                 interviewRepository.save(interview);
-
-        // -------------------------------------------------
-        // APPLICATION
-        // -------------------------------------------------
 
         Application application =
                 interview.getApplication();
@@ -487,10 +600,6 @@ public class InterviewService {
             return savedInterview;
         }
 
-        // -------------------------------------------------
-        // SYNCHRONIZE APPLICATION
-        // -------------------------------------------------
-
         synchronizeApplicationStatus(
                 application,
                 newStatus
@@ -498,50 +607,35 @@ public class InterviewService {
 
         applicationRepository.save(application);
 
-        // -------------------------------------------------
-        // MESSAGE
-        // -------------------------------------------------
-
         String message;
 
         switch (newStatus) {
 
             case "CANCELLED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " has been cancelled.";
-
+                                + getJobTitle(application)
+                                + " has been cancelled.";
                 break;
 
             case "COMPLETED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " has been completed.";
-
+                                + getJobTitle(application)
+                                + " has been completed.";
                 break;
 
             case "SCHEDULED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " has been updated.";
-
+                                + getJobTitle(application)
+                                + " has been updated.";
                 break;
 
             default:
-
                 message =
                         "Your interview has been updated.";
         }
-
-        // -------------------------------------------------
-        // NOTIFICATION
-        // -------------------------------------------------
 
         sendNotificationSafely(
                 application,
@@ -549,17 +643,11 @@ public class InterviewService {
                 "INTERVIEW"
         );
 
-        // -------------------------------------------------
-        // EMAIL
-        // -------------------------------------------------
-
         sendInterviewEmailSafely(
                 application,
                 savedInterview,
-
                 "Interview Updated - "
                         + getJobTitle(application),
-
                 message
         );
 
@@ -567,24 +655,54 @@ public class InterviewService {
     }
 
     // =====================================================
-    // UPDATE INTERVIEW STATUS
-    // PUT /interviews/{id}/status?status=COMPLETED
+    // SECURED UPDATE INTERVIEW
+    // =====================================================
+
+    public Interview updateInterviewForEmployer(
+            Long interviewId,
+            Interview updatedInterview,
+            String employerEmail) {
+
+        if (interviewId == null
+                || employerEmail == null) {
+
+            return null;
+        }
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null) {
+            return null;
+        }
+
+        if (!employerOwnsInterview(
+                interview,
+                employerEmail)) {
+
+            return null;
+        }
+
+        return updateInterview(
+                interviewId,
+                updatedInterview
+        );
+    }
+
+    // =====================================================
+    // UPDATE STATUS
     // =====================================================
 
     public Interview updateInterviewStatus(
             Long interviewId,
             String status) {
 
-        if (interviewId == null ||
-                status == null ||
-                status.trim().isEmpty()) {
+        if (interviewId == null
+                || status == null
+                || status.trim().isEmpty()) {
 
             return null;
         }
-
-        // -------------------------------------------------
-        // FIND INTERVIEW
-        // -------------------------------------------------
 
         Interview interview =
                 interviewRepository
@@ -595,16 +713,8 @@ public class InterviewService {
             return null;
         }
 
-        // -------------------------------------------------
-        // NORMALIZE
-        // -------------------------------------------------
-
         String normalizedStatus =
                 normalizeStatus(status);
-
-        // -------------------------------------------------
-        // VALIDATE STATUS
-        // -------------------------------------------------
 
         if (!isValidInterviewStatus(
                 normalizedStatus)) {
@@ -617,44 +727,24 @@ public class InterviewService {
                         interview.getStatus()
                 );
 
-        // -------------------------------------------------
-        // SAME STATUS
-        // -------------------------------------------------
-
         if (currentStatus.equals(normalizedStatus)) {
             return interview;
         }
 
-        // -------------------------------------------------
-        // PREVENT INVALID TRANSITIONS
-        // -------------------------------------------------
-
-        if ("COMPLETED".equals(currentStatus) &&
-                "CANCELLED".equals(normalizedStatus)) {
-
+        if ("COMPLETED".equals(currentStatus)
+                && "CANCELLED".equals(normalizedStatus)) {
             return null;
         }
 
-        if ("CANCELLED".equals(currentStatus) &&
-                "COMPLETED".equals(normalizedStatus)) {
-
+        if ("CANCELLED".equals(currentStatus)
+                && "COMPLETED".equals(normalizedStatus)) {
             return null;
         }
 
-        // -------------------------------------------------
-        // UPDATE
-        // -------------------------------------------------
-
-        interview.setStatus(
-                normalizedStatus
-        );
+        interview.setStatus(normalizedStatus);
 
         Interview savedInterview =
                 interviewRepository.save(interview);
-
-        // -------------------------------------------------
-        // APPLICATION
-        // -------------------------------------------------
 
         Application application =
                 interview.getApplication();
@@ -670,50 +760,35 @@ public class InterviewService {
 
         applicationRepository.save(application);
 
-        // -------------------------------------------------
-        // MESSAGE
-        // -------------------------------------------------
-
         String message;
 
         switch (normalizedStatus) {
 
             case "SCHEDULED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " is scheduled.";
-
+                                + getJobTitle(application)
+                                + " is scheduled.";
                 break;
 
             case "COMPLETED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " has been completed.";
-
+                                + getJobTitle(application)
+                                + " has been completed.";
                 break;
 
             case "CANCELLED":
-
                 message =
                         "Your interview for "
-                        + getJobTitle(application)
-                        + " has been cancelled.";
-
+                                + getJobTitle(application)
+                                + " has been cancelled.";
                 break;
 
             default:
-
                 message =
                         "Your interview status has been updated.";
         }
-
-        // -------------------------------------------------
-        // NOTIFICATION
-        // -------------------------------------------------
 
         sendNotificationSafely(
                 application,
@@ -721,17 +796,11 @@ public class InterviewService {
                 "INTERVIEW"
         );
 
-        // -------------------------------------------------
-        // EMAIL
-        // -------------------------------------------------
-
         sendInterviewEmailSafely(
                 application,
                 savedInterview,
-
                 "Interview Status Updated - "
                         + getJobTitle(application),
-
                 message
         );
 
@@ -739,8 +808,42 @@ public class InterviewService {
     }
 
     // =====================================================
-    // CANCEL INTERVIEW
-    // PUT /interviews/{id}/cancel
+    // SECURED STATUS UPDATE
+    // =====================================================
+
+    public Interview updateInterviewStatusForEmployer(
+            Long interviewId,
+            String status,
+            String employerEmail) {
+
+        if (interviewId == null
+                || employerEmail == null) {
+
+            return null;
+        }
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null) {
+            return null;
+        }
+
+        if (!employerOwnsInterview(
+                interview,
+                employerEmail)) {
+
+            return null;
+        }
+
+        return updateInterviewStatus(
+                interviewId,
+                status
+        );
+    }
+
+    // =====================================================
+    // CANCEL
     // =====================================================
 
     public Interview cancelInterview(
@@ -764,25 +867,13 @@ public class InterviewService {
                         interview.getStatus()
                 );
 
-        // -------------------------------------------------
-        // ALREADY CANCELLED
-        // -------------------------------------------------
-
         if ("CANCELLED".equals(currentStatus)) {
             return interview;
         }
 
-        // -------------------------------------------------
-        // COMPLETED CANNOT BE CANCELLED
-        // -------------------------------------------------
-
         if ("COMPLETED".equals(currentStatus)) {
             return null;
         }
-
-        // -------------------------------------------------
-        // CANCEL
-        // -------------------------------------------------
 
         interview.setStatus("CANCELLED");
 
@@ -798,33 +889,21 @@ public class InterviewService {
 
             applicationRepository.save(application);
 
-            // -------------------------------------------------
-            // NOTIFICATION
-            // -------------------------------------------------
-
             sendNotificationSafely(
                     application,
-
                     "Your interview for "
                             + getJobTitle(application)
                             + " has been cancelled.",
-
                     "INTERVIEW"
             );
-
-            // -------------------------------------------------
-            // EMAIL
-            // -------------------------------------------------
 
             sendInterviewEmailSafely(
                     application,
                     savedInterview,
-
                     "Interview Cancelled - "
                             + getJobTitle(application),
-
                     "Your interview has been cancelled. "
-                    + "We will notify you if it is rescheduled."
+                            + "We will notify you if it is rescheduled."
             );
         }
 
@@ -832,8 +911,29 @@ public class InterviewService {
     }
 
     // =====================================================
-    // COMPLETE INTERVIEW
-    // PUT /interviews/{id}/complete
+    // SECURED CANCEL
+    // =====================================================
+
+    public Interview cancelInterviewForEmployer(
+            Long interviewId,
+            String employerEmail) {
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null
+                || !employerOwnsInterview(
+                        interview,
+                        employerEmail)) {
+
+            return null;
+        }
+
+        return cancelInterview(interviewId);
+    }
+
+    // =====================================================
+    // COMPLETE
     // =====================================================
 
     public Interview completeInterview(
@@ -857,25 +957,13 @@ public class InterviewService {
                         interview.getStatus()
                 );
 
-        // -------------------------------------------------
-        // ALREADY COMPLETED
-        // -------------------------------------------------
-
         if ("COMPLETED".equals(currentStatus)) {
             return interview;
         }
 
-        // -------------------------------------------------
-        // CANCELLED CANNOT BE COMPLETED
-        // -------------------------------------------------
-
         if ("CANCELLED".equals(currentStatus)) {
             return null;
         }
-
-        // -------------------------------------------------
-        // COMPLETE
-        // -------------------------------------------------
 
         interview.setStatus("COMPLETED");
 
@@ -889,50 +977,55 @@ public class InterviewService {
             return savedInterview;
         }
 
-        // -------------------------------------------------
-        // APPLICATION STATUS
-        // -------------------------------------------------
-
         application.setStatus("INTERVIEW");
 
         applicationRepository.save(application);
 
-        // -------------------------------------------------
-        // NOTIFICATION
-        // -------------------------------------------------
-
         sendNotificationSafely(
                 application,
-
                 "Your interview for "
                         + getJobTitle(application)
                         + " has been completed.",
-
                 "INTERVIEW"
         );
-
-        // -------------------------------------------------
-        // EMAIL
-        // -------------------------------------------------
 
         sendInterviewEmailSafely(
                 application,
                 savedInterview,
-
                 "Interview Completed - "
                         + getJobTitle(application),
-
                 "Your interview has been completed. "
-                + "Our recruitment team will contact "
-                + "you regarding the next steps."
+                        + "Our recruitment team will contact "
+                        + "you regarding the next steps."
         );
 
         return savedInterview;
     }
 
     // =====================================================
-    // DELETE INTERVIEW
-    // DELETE /interviews/{id}
+    // SECURED COMPLETE
+    // =====================================================
+
+    public Interview completeInterviewForEmployer(
+            Long interviewId,
+            String employerEmail) {
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null
+                || !employerOwnsInterview(
+                        interview,
+                        employerEmail)) {
+
+            return null;
+        }
+
+        return completeInterview(interviewId);
+    }
+
+    // =====================================================
+    // DELETE
     // =====================================================
 
     public boolean deleteInterview(
@@ -954,24 +1047,13 @@ public class InterviewService {
         Application application =
                 interview.getApplication();
 
-        // -------------------------------------------------
-        // DELETE
-        // -------------------------------------------------
-
         interviewRepository.delete(interview);
 
-        // -------------------------------------------------
-        // RESET APPLICATION
-        // -------------------------------------------------
+        if (application != null
+                && "INTERVIEW".equalsIgnoreCase(
+                        application.getStatus())) {
 
-        if (application != null &&
-                "INTERVIEW".equalsIgnoreCase(
-                        application.getStatus()
-                )) {
-
-            application.setStatus(
-                    "SHORTLISTED"
-            );
+            application.setStatus("SHORTLISTED");
 
             applicationRepository.save(application);
         }
@@ -980,7 +1062,30 @@ public class InterviewService {
     }
 
     // =====================================================
-    // ANALYTICS
+    // SECURED DELETE
+    // =====================================================
+
+    public boolean deleteInterviewForEmployer(
+            Long interviewId,
+            String employerEmail) {
+
+        Interview interview =
+                getInterviewById(interviewId);
+
+        if (interview == null
+                || !employerOwnsInterview(
+                        interview,
+                        employerEmail)) {
+
+            return false;
+        }
+
+        return deleteInterview(interviewId);
+    }
+
+    // =====================================================
+    // GLOBAL ANALYTICS
+    // ADMIN ONLY
     // =====================================================
 
     public long totalScheduled() {
@@ -1012,28 +1117,16 @@ public class InterviewService {
             return false;
         }
 
-        // -------------------------------------------------
-        // DATE
-        // -------------------------------------------------
-
         if (interview.getInterviewDate() == null) {
             return false;
         }
-
-        // -------------------------------------------------
-        // TIME
-        // -------------------------------------------------
 
         if (interview.getInterviewTime() == null) {
             return false;
         }
 
-        // -------------------------------------------------
-        // MODE
-        // -------------------------------------------------
-
-        if (interview.getInterviewMode() == null ||
-                interview.getInterviewMode()
+        if (interview.getInterviewMode() == null
+                || interview.getInterviewMode()
                         .trim()
                         .isEmpty()) {
 
@@ -1045,55 +1138,32 @@ public class InterviewService {
                         .trim()
                         .toUpperCase();
 
-        if (!"ONLINE".equals(mode) &&
-                !"OFFLINE".equals(mode)) {
+        if (!"ONLINE".equals(mode)
+                && !"OFFLINE".equals(mode)) {
 
             return false;
         }
 
-        // -------------------------------------------------
-        // INTERVIEWER
-        // -------------------------------------------------
-
-        if (interview.getInterviewerName() == null ||
-                interview.getInterviewerName()
+        if (interview.getInterviewerName() == null
+                || interview.getInterviewerName()
                         .trim()
                         .isEmpty()) {
 
             return false;
         }
 
-        // -------------------------------------------------
-        // ONLINE
-        // -------------------------------------------------
-
         if ("ONLINE".equals(mode)) {
 
-            if (interview.getMeetingLink() == null ||
-                    interview.getMeetingLink()
+            return interview.getMeetingLink() != null
+                    && !interview.getMeetingLink()
                             .trim()
-                            .isEmpty()) {
-
-                return false;
-            }
+                            .isEmpty();
         }
 
-        // -------------------------------------------------
-        // OFFLINE
-        // -------------------------------------------------
-
-        if ("OFFLINE".equals(mode)) {
-
-            if (interview.getLocation() == null ||
-                    interview.getLocation()
-                            .trim()
-                            .isEmpty()) {
-
-                return false;
-            }
-        }
-
-        return true;
+        return interview.getLocation() != null
+                && !interview.getLocation()
+                        .trim()
+                        .isEmpty();
     }
 
     // =====================================================
@@ -1139,9 +1209,6 @@ public class InterviewService {
         switch (interviewStatus) {
 
             case "SCHEDULED":
-                application.setStatus("INTERVIEW");
-                break;
-
             case "COMPLETED":
                 application.setStatus("INTERVIEW");
                 break;
@@ -1156,14 +1223,14 @@ public class InterviewService {
     }
 
     // =====================================================
-    // GET JOB TITLE
+    // JOB TITLE
     // =====================================================
 
     private String getJobTitle(
             Application application) {
 
-        if (application == null ||
-                application.getJob() == null) {
+        if (application == null
+                || application.getJob() == null) {
 
             return "Job Position";
         }
@@ -1173,8 +1240,8 @@ public class InterviewService {
                         .getJob()
                         .getTitle();
 
-        return title != null &&
-                !title.trim().isEmpty()
+        return title != null
+                && !title.trim().isEmpty()
                 ? title
                 : "Job Position";
     }
@@ -1190,8 +1257,8 @@ public class InterviewService {
 
         try {
 
-            if (application == null ||
-                    application.getUser() == null) {
+            if (application == null
+                    || application.getUser() == null) {
 
                 return;
             }
@@ -1215,7 +1282,7 @@ public class InterviewService {
 
             System.err.println(
                     "Notification failed: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
         }
     }
@@ -1232,9 +1299,9 @@ public class InterviewService {
 
         try {
 
-            if (application == null ||
-                    application.getUser() == null ||
-                    interview == null) {
+            if (application == null
+                    || application.getUser() == null
+                    || interview == null) {
 
                 return;
             }
@@ -1250,13 +1317,13 @@ public class InterviewService {
 
             System.err.println(
                     "Interview email failed: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
         }
     }
 
     // =====================================================
-    // SEND INTERVIEW EMAIL
+    // SEND EMAIL
     // =====================================================
 
     private void sendInterviewEmail(
@@ -1265,15 +1332,11 @@ public class InterviewService {
             String subject,
             String message) {
 
-        if (application == null ||
-                application.getUser() == null) {
+        if (application == null
+                || application.getUser() == null) {
 
             return;
         }
-
-        // -------------------------------------------------
-        // CANDIDATE NAME
-        // -------------------------------------------------
 
         String candidateName =
                 application
@@ -1284,83 +1347,48 @@ public class InterviewService {
                                 .getName()
                         : "Candidate";
 
-        // -------------------------------------------------
-        // CANDIDATE EMAIL
-        // -------------------------------------------------
-
         String candidateEmail =
                 application
                         .getUser()
                         .getEmail();
 
-        if (candidateEmail == null ||
-                candidateEmail.trim().isEmpty()) {
+        if (candidateEmail == null
+                || candidateEmail.trim().isEmpty()) {
 
             return;
         }
 
-        // -------------------------------------------------
-        // JOB
-        // -------------------------------------------------
-
         String jobTitle =
                 getJobTitle(application);
-
-        // -------------------------------------------------
-        // MEETING LINK
-        // -------------------------------------------------
 
         String meetingLink =
                 interview.getMeetingLink() != null
                         ? interview.getMeetingLink()
                         : "N/A";
 
-        // -------------------------------------------------
-        // LOCATION
-        // -------------------------------------------------
-
         String location =
                 interview.getLocation() != null
                         ? interview.getLocation()
                         : "N/A";
-
-        // -------------------------------------------------
-        // INTERVIEWER
-        // -------------------------------------------------
 
         String interviewer =
                 interview.getInterviewerName() != null
                         ? interview.getInterviewerName()
                         : "N/A";
 
-        // -------------------------------------------------
-        // INTERVIEWER EMAIL
-        // -------------------------------------------------
-
         String interviewerEmail =
                 interview.getInterviewerEmail() != null
                         ? interview.getInterviewerEmail()
                         : "N/A";
-
-        // -------------------------------------------------
-        // STATUS
-        // -------------------------------------------------
 
         String status =
                 interview.getStatus() != null
                         ? interview.getStatus()
                         : "N/A";
 
-        // -------------------------------------------------
-        // SEND EMAIL
-        // -------------------------------------------------
-
         emailService.sendEmail(
-
                 candidateEmail,
-
                 subject,
-
                 """
                 Dear %s,
 
@@ -1385,27 +1413,16 @@ public class InterviewService {
                 Regards,
                 Job Portal Team
                 """.formatted(
-
                         candidateName,
-
                         message,
-
                         jobTitle,
-
                         interview.getInterviewDate(),
-
                         interview.getInterviewTime(),
-
                         interview.getInterviewMode(),
-
                         meetingLink,
-
                         location,
-
                         interviewer,
-
                         interviewerEmail,
-
                         status
                 )
         );

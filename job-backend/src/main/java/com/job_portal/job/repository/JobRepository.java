@@ -13,30 +13,9 @@ public interface JobRepository
         extends JpaRepository<Job, Long>,
                 JpaSpecificationExecutor<Job> {
 
-    // =====================================================
-    // GET JOBS BY EMPLOYER
-    // =====================================================
-
     List<Job> findByEmployerId(Long employerId);
-
-
-    // =====================================================
-    // GET JOBS BY COMPANY
-    // =====================================================
 
     List<Job> findByCompany(String company);
 
-
-    // =====================================================
-    // COUNT JOBS BY EMPLOYER
-    // =====================================================
-
     long countByEmployerId(Long employerId);
-
-
-    // =====================================================
-    // COUNT ALL JOBS
-    // =====================================================
-
-    long count();
 }

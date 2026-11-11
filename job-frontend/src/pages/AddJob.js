@@ -6,8 +6,6 @@ function AddJob() {
 
     const navigate = useNavigate();
 
-    const employerId = localStorage.getItem("userId");
-
     const [job, setJob] = useState({
         title: "",
         company: "",
@@ -19,12 +17,25 @@ function AddJob() {
         experienceLevel: ""
     });
 
+
+    // ==========================================
+    // HANDLE INPUT CHANGE
+    // ==========================================
+
     const handleChange = (e) => {
+
+        const { name, value } = e.target;
+
         setJob({
             ...job,
-            [e.target.name]: e.target.value
+            [name]: value
         });
     };
+
+
+    // ==========================================
+    // SUBMIT JOB
+    // ==========================================
 
     const handleSubmit = async (e) => {
 
@@ -32,9 +43,14 @@ function AddJob() {
 
         try {
 
+            const request = {
+                ...job,
+                salary: Number(job.salary)
+            };
+
             await API.post(
-                `/jobs?employerId=${employerId}`,
-                job
+                "/jobs",
+                request
             );
 
             alert("Job Posted Successfully");
@@ -43,11 +59,16 @@ function AddJob() {
 
         } catch (err) {
 
-            console.log(err);
+            console.error("Job creation failed:", err);
 
-            alert("Failed to post job");
+            const message =
+                err.response?.data?.message ||
+                "Failed to post job";
+
+            alert(message);
         }
     };
+
 
     return (
 
@@ -59,10 +80,13 @@ function AddJob() {
                     Post New Job
                 </h1>
 
+
                 <form
                     onSubmit={handleSubmit}
                     className="space-y-5"
                 >
+
+                    {/* JOB TITLE */}
 
                     <input
                         type="text"
@@ -74,6 +98,9 @@ function AddJob() {
                         required
                     />
 
+
+                    {/* COMPANY */}
+
                     <input
                         type="text"
                         name="company"
@@ -83,6 +110,9 @@ function AddJob() {
                         className="w-full border p-3 rounded-lg"
                         required
                     />
+
+
+                    {/* LOCATION */}
 
                     <input
                         type="text"
@@ -94,15 +124,23 @@ function AddJob() {
                         required
                     />
 
+
+                    {/* SALARY */}
+
                     <input
                         type="number"
                         name="salary"
                         placeholder="Salary"
                         value={job.salary}
                         onChange={handleChange}
+                        min="0"
+                        step="0.01"
                         className="w-full border p-3 rounded-lg"
                         required
                     />
+
+
+                    {/* CATEGORY */}
 
                     <select
                         name="category"
@@ -111,14 +149,39 @@ function AddJob() {
                         className="w-full border p-3 rounded-lg"
                         required
                     >
-                        <option value="">Select Category</option>
-                        <option value="IT">IT</option>
-                        <option value="Finance">Finance</option>
-                        <option value="Marketing">Marketing</option>
-                        <option value="HR">HR</option>
-                        <option value="Sales">Sales</option>
-                        <option value="Healthcare">Healthcare</option>
+
+                        <option value="">
+                            Select Category
+                        </option>
+
+                        <option value="IT">
+                            IT
+                        </option>
+
+                        <option value="Finance">
+                            Finance
+                        </option>
+
+                        <option value="Marketing">
+                            Marketing
+                        </option>
+
+                        <option value="HR">
+                            HR
+                        </option>
+
+                        <option value="Sales">
+                            Sales
+                        </option>
+
+                        <option value="Healthcare">
+                            Healthcare
+                        </option>
+
                     </select>
+
+
+                    {/* JOB TYPE */}
 
                     <select
                         name="jobType"
@@ -127,13 +190,35 @@ function AddJob() {
                         className="w-full border p-3 rounded-lg"
                         required
                     >
-                        <option value="">Select Job Type</option>
-                        <option value="Full Time">Full Time</option>
-                        <option value="Part Time">Part Time</option>
-                        <option value="Internship">Internship</option>
-                        <option value="Contract">Contract</option>
-                        <option value="Remote">Remote</option>
+
+                        <option value="">
+                            Select Job Type
+                        </option>
+
+                        <option value="Full Time">
+                            Full Time
+                        </option>
+
+                        <option value="Part Time">
+                            Part Time
+                        </option>
+
+                        <option value="Internship">
+                            Internship
+                        </option>
+
+                        <option value="Contract">
+                            Contract
+                        </option>
+
+                        <option value="Remote">
+                            Remote
+                        </option>
+
                     </select>
+
+
+                    {/* EXPERIENCE LEVEL */}
 
                     <select
                         name="experienceLevel"
@@ -142,12 +227,31 @@ function AddJob() {
                         className="w-full border p-3 rounded-lg"
                         required
                     >
-                        <option value="">Select Experience Level</option>
-                        <option value="Fresher">Fresher</option>
-                        <option value="1-3 Years">1-3 Years</option>
-                        <option value="3-5 Years">3-5 Years</option>
-                        <option value="5+ Years">5+ Years</option>
+
+                        <option value="">
+                            Select Experience Level
+                        </option>
+
+                        <option value="Fresher">
+                            Fresher
+                        </option>
+
+                        <option value="1-3 Years">
+                            1-3 Years
+                        </option>
+
+                        <option value="3-5 Years">
+                            3-5 Years
+                        </option>
+
+                        <option value="5+ Years">
+                            5+ Years
+                        </option>
+
                     </select>
+
+
+                    {/* DESCRIPTION */}
 
                     <textarea
                         name="description"
@@ -158,6 +262,9 @@ function AddJob() {
                         className="w-full border p-3 rounded-lg"
                         required
                     />
+
+
+                    {/* SUBMIT */}
 
                     <button
                         type="submit"
@@ -171,7 +278,6 @@ function AddJob() {
             </div>
 
         </div>
-
     );
 }
 

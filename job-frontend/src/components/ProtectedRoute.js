@@ -18,7 +18,7 @@ function ProtectedRoute({ children, role, roles }) {
     }
 
     // ==========================================
-    // NORMALIZE USER ROLE
+    // NORMALIZE ROLE
     // ==========================================
 
     const normalizeRole = (value) => {
@@ -31,17 +31,14 @@ function ProtectedRoute({ children, role, roles }) {
             .trim()
             .toUpperCase();
 
-        // --------------------------------------
-        // Remove duplicate ROLE_ prefix
-        // --------------------------------------
-
-        if (normalized.startsWith("ROLE_ROLE_")) {
+        // ROLE_ROLE_EMPLOYER → ROLE_EMPLOYER
+        while (normalized.startsWith("ROLE_ROLE_")) {
             normalized = normalized.substring(5);
         }
 
-        // --------------------------------------
-        // Convert aliases
-        // --------------------------------------
+        // ======================================
+        // JOB SEEKER ALIASES
+        // ======================================
 
         switch (normalized) {
 
@@ -53,20 +50,40 @@ function ProtectedRoute({ children, role, roles }) {
 
             case "JOBSEEKER":
             case "JOB_SEEKER":
+            case "ROLE_JOBSEEKER":
+            case "ROLE_JOB_SEEKER":
+
                 return "ROLE_JOB_SEEKER";
 
+            // ==================================
+            // EMPLOYER
+            // ==================================
+
             case "EMPLOYER":
+            case "ROLE_EMPLOYER":
+
                 return "ROLE_EMPLOYER";
 
+            // ==================================
+            // RECRUITER
+            // ==================================
+
             case "RECRUITER":
+            case "ROLE_RECRUITER":
+
                 return "ROLE_RECRUITER";
 
+            // ==================================
+            // ADMIN
+            // ==================================
+
             case "ADMIN":
+            case "ROLE_ADMIN":
+
                 return "ROLE_ADMIN";
 
             default:
 
-                // Already ROLE_XXX
                 if (normalized.startsWith("ROLE_")) {
                     return normalized;
                 }
@@ -76,14 +93,10 @@ function ProtectedRoute({ children, role, roles }) {
     };
 
     // ==========================================
-    // NORMALIZED USER ROLE
+    // USER ROLE
     // ==========================================
 
     const userRole = normalizeRole(storedRole);
-
-    console.log("ProtectedRoute:");
-    console.log("Stored role:", storedRole);
-    console.log("Normalized role:", userRole);
 
     // ==========================================
     // BUILD ALLOWED ROLES
@@ -107,10 +120,8 @@ function ProtectedRoute({ children, role, roles }) {
     // ==========================================
 
     allowedRoles = allowedRoles
-        .map((item) => normalizeRole(item))
+        .map(normalizeRole)
         .filter(Boolean);
-
-    console.log("Allowed roles:", allowedRoles);
 
     // ==========================================
     // ROLE VALIDATION
@@ -120,14 +131,6 @@ function ProtectedRoute({ children, role, roles }) {
         allowedRoles.length > 0 &&
         !allowedRoles.includes(userRole)
     ) {
-
-        console.warn(
-            "ProtectedRoute: role not allowed",
-            {
-                userRole,
-                allowedRoles
-            }
-        );
 
         // ======================================
         // EMPLOYER
@@ -175,7 +178,7 @@ function ProtectedRoute({ children, role, roles }) {
         if (userRole === "ROLE_ADMIN") {
             return (
                 <Navigate
-                    to="/admin-dashboard"
+                    to="/dashboard"
                     replace
                 />
             );

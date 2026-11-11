@@ -4,13 +4,11 @@ import API from "../services/api";
 import "./Profile.css";
 
 function Profile() {
-
     const navigate = useNavigate();
 
     const token = localStorage.getItem("token");
     const userId = localStorage.getItem("userId");
     const storedRole = localStorage.getItem("role");
-
 
     // =====================================================
     // PROFILE STATE
@@ -24,13 +22,11 @@ function Profile() {
         contactNumber: ""
     });
 
-
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
-
 
     // =====================================================
     // PASSWORD STATE
@@ -42,80 +38,76 @@ function Profile() {
         confirmPassword: ""
     });
 
-
-    const [changingPassword, setChangingPassword] =
-        useState(false);
-
-    const [passwordMessage, setPasswordMessage] =
-        useState("");
-
-    const [passwordError, setPasswordError] =
-        useState("");
-
+    const [changingPassword, setChangingPassword] = useState(false);
+    const [passwordMessage, setPasswordMessage] = useState("");
+    const [passwordError, setPasswordError] = useState("");
 
     // =====================================================
     // NORMALIZE ROLE
     // =====================================================
 
     const normalizeRole = (value) => {
-
         if (!value) {
             return "";
         }
 
-        let role = String(value)
+        const role = String(value)
             .trim()
             .toUpperCase();
 
-
-        if (role === "USER" ||
+        if (
+            role === "USER" ||
             role === "ROLE_USER" ||
             role === "CANDIDATE" ||
             role === "ROLE_CANDIDATE" ||
             role === "JOBSEEKER" ||
-            role === "JOB_SEEKER") {
-
+            role === "JOB_SEEKER" ||
+            role === "ROLE_JOBSEEKER"
+        ) {
             return "ROLE_JOB_SEEKER";
         }
 
-
-        if (role === "EMPLOYER") {
+        if (
+            role === "EMPLOYER" ||
+            role === "ROLE_EMPLOYER"
+        ) {
             return "ROLE_EMPLOYER";
         }
 
-
-        if (role === "RECRUITER") {
+        if (
+            role === "RECRUITER" ||
+            role === "ROLE_RECRUITER"
+        ) {
             return "ROLE_RECRUITER";
         }
 
-
-        if (role === "ADMIN") {
+        if (
+            role === "ADMIN" ||
+            role === "ROLE_ADMIN"
+        ) {
             return "ROLE_ADMIN";
         }
 
+        if (
+            role === "SUPER_ADMIN" ||
+            role === "ROLE_SUPER_ADMIN"
+        ) {
+            return "ROLE_SUPER_ADMIN";
+        }
 
         if (!role.startsWith("ROLE_")) {
             return `ROLE_${role}`;
         }
 
-
         return role;
     };
 
-
     // =====================================================
-    // FORMAT ROLE FOR DISPLAY
+    // FORMAT ROLE
     // =====================================================
 
     const formatRole = (role) => {
-
-        if (!role) {
-            return "User";
-        }
-
-
         switch (normalizeRole(role)) {
-
             case "ROLE_JOB_SEEKER":
                 return "Job Seeker";
 
@@ -128,299 +120,357 @@ function Profile() {
             case "ROLE_ADMIN":
                 return "Administrator";
 
+            case "ROLE_SUPER_ADMIN":
+                return "Super Administrator";
+
             default:
                 return role
-                    .replace("ROLE_", "")
-                    .replaceAll("_", " ");
+                    ? String(role)
+                        .replace("ROLE_", "")
+                        .replaceAll("_", " ")
+                    : "User";
         }
     };
 
+    // =====================================================
+    // GET BACKEND ERROR MESSAGE
+    // =====================================================
+
+    const getErrorMessage = (error, fallbackMessage) => {
+        const data = error?.response?.data;
+
+        if (typeof data === "string" && data.trim()) {
+            return data;
+        }
+
+        if (data?.message) {
+            return data.message;
+        }
+
+        if (data?.error) {
+            return data.error;
+        }
+
+        return fallbackMessage;
+    };
+
+    // =====================================================
+    // LOGOUT
+    // =====================================================
+
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        localStorage.removeItem("role");
+        localStorage.removeItem("user");
+
+        navigate("/login", {
+            replace: true
+        });
+    };
 
     // =====================================================
     // LOAD PROFILE
     // =====================================================
 
     const loadProfile = async () => {
-
         if (!token || !userId) {
-
-            navigate("/login", {
-                replace: true
-            });
-
+            handleLogout();
             return;
         }
 
-
         try {
-
             setLoading(true);
             setError("");
             setMessage("");
-
 
             const response = await API.get(
                 `/users/${userId}`
             );
 
-
             const data = response.data || {};
-
 
             setProfile({
                 id: data.id ?? userId,
                 name: data.name ?? "",
                 email: data.email ?? "",
                 role: data.role ?? storedRole ?? "",
-                contactNumber:
-                    data.contactNumber ?? ""
+                contactNumber: data.contactNumber ?? ""
             });
 
-
         } catch (err) {
-
             console.error(
                 "Failed to load profile:",
                 err
             );
 
+            const status = err.response?.status;
 
-            if (err.response?.status === 401 ||
-                err.response?.status === 403) {
-
-                localStorage.removeItem("token");
-                localStorage.removeItem("userId");
-                localStorage.removeItem("role");
-                localStorage.removeItem("user");
-
-                navigate("/login", {
-                    replace: true
-                });
-
+            // 401 means the JWT is missing/invalid/expired.
+            if (status === 401) {
+                handleLogout();
                 return;
             }
 
+            // 403 means the authenticated user is not
+            // authorized for this particular resource.
+            if (status === 403) {
+                setError(
+                    getErrorMessage(
+                        err,
+                        "You are not authorized to view this profile."
+                    )
+                );
+                return;
+            }
 
             setError(
-                err.response?.data ||
-                "Unable to load profile."
+                getErrorMessage(
+                    err,
+                    "Unable to load profile."
+                )
             );
 
         } finally {
-
             setLoading(false);
         }
     };
-
 
     // =====================================================
     // INITIAL LOAD
     // =====================================================
 
     useEffect(() => {
-
         loadProfile();
-
     }, []);
-
 
     // =====================================================
     // PROFILE INPUT CHANGE
     // =====================================================
 
     const handleProfileChange = (event) => {
-
         const {
             name,
             value
         } = event.target;
 
-
-        setProfile(previous => ({
+        setProfile((previous) => ({
             ...previous,
             [name]: value
         }));
 
-
         setMessage("");
         setError("");
     };
-
 
     // =====================================================
     // SAVE PROFILE
     // =====================================================
 
     const handleSaveProfile = async (event) => {
-
         event.preventDefault();
 
+        setMessage("");
+        setError("");
 
-        if (!profile.name.trim()) {
+        const trimmedName = profile.name.trim();
+        const trimmedContact = profile.contactNumber.trim();
 
-            setError(
-                "Name is required."
-            );
-
+        if (!trimmedName) {
+            setError("Name is required.");
             return;
         }
 
+        if (trimmedName.length < 2) {
+            setError("Name must be at least 2 characters.");
+            return;
+        }
+
+        if (trimmedName.length > 100) {
+            setError("Name cannot exceed 100 characters.");
+            return;
+        }
+
+        if (trimmedContact.length > 20) {
+            setError(
+                "Contact number cannot exceed 20 characters."
+            );
+            return;
+        }
 
         try {
-
             setSaving(true);
-            setError("");
-            setMessage("");
-
 
             const response = await API.put(
                 `/users/${userId}`,
                 {
-                    name: profile.name.trim(),
-                    contactNumber:
-                        profile.contactNumber.trim()
+                    name: trimmedName,
+                    contactNumber: trimmedContact
                 }
             );
 
+            const updated = response.data || {};
 
-            const updated =
-                response.data || {};
-
-
-            setProfile(previous => ({
+            setProfile((previous) => ({
                 ...previous,
                 id: updated.id ?? previous.id,
                 name: updated.name ?? previous.name,
                 email: updated.email ?? previous.email,
-                role: updated.role ?? previous.role
+                role: updated.role ?? previous.role,
+                contactNumber:
+                    updated.contactNumber ??
+                    previous.contactNumber
             }));
 
+            // Update stored user object if one exists.
+            const storedUser =
+                localStorage.getItem("user");
+
+            if (storedUser) {
+                try {
+                    const user = JSON.parse(storedUser);
+
+                    localStorage.setItem(
+                        "user",
+                        JSON.stringify({
+                            ...user,
+                            name:
+                                updated.name ??
+                                trimmedName,
+                            contactNumber:
+                                updated.contactNumber ??
+                                trimmedContact
+                        })
+                    );
+                } catch (parseError) {
+                    console.warn(
+                        "Unable to update stored user:",
+                        parseError
+                    );
+                }
+            }
 
             setMessage(
                 "Profile updated successfully."
             );
 
-
         } catch (err) {
-
             console.error(
                 "Failed to update profile:",
                 err
             );
 
+            if (err.response?.status === 401) {
+                handleLogout();
+                return;
+            }
 
             setError(
-                err.response?.data ||
-                "Unable to update profile."
+                getErrorMessage(
+                    err,
+                    "Unable to update profile."
+                )
             );
 
         } finally {
-
             setSaving(false);
         }
     };
-
 
     // =====================================================
     // PASSWORD INPUT CHANGE
     // =====================================================
 
     const handlePasswordChange = (event) => {
-
         const {
             name,
             value
         } = event.target;
 
-
-        setPasswordForm(previous => ({
+        setPasswordForm((previous) => ({
             ...previous,
             [name]: value
         }));
 
-
         setPasswordMessage("");
         setPasswordError("");
     };
-
 
     // =====================================================
     // CHANGE PASSWORD
     // =====================================================
 
     const handleChangePassword = async (event) => {
-
         event.preventDefault();
-
 
         setPasswordMessage("");
         setPasswordError("");
 
+        const currentPassword =
+            passwordForm.currentPassword;
 
-        if (!passwordForm.currentPassword) {
+        const newPassword =
+            passwordForm.newPassword;
 
+        const confirmPassword =
+            passwordForm.confirmPassword;
+
+        if (!currentPassword) {
             setPasswordError(
                 "Current password is required."
             );
-
             return;
         }
 
-
-        if (!passwordForm.newPassword) {
-
+        if (!newPassword) {
             setPasswordError(
                 "New password is required."
             );
-
             return;
         }
 
-
-        if (passwordForm.newPassword.length < 6) {
-
+        if (newPassword.length < 6) {
             setPasswordError(
                 "New password must be at least 6 characters."
             );
-
             return;
         }
 
+        if (newPassword.length > 100) {
+            setPasswordError(
+                "New password cannot exceed 100 characters."
+            );
+            return;
+        }
 
-        if (
-            passwordForm.newPassword !==
-            passwordForm.confirmPassword
-        ) {
+        if (!confirmPassword) {
+            setPasswordError(
+                "Please confirm your new password."
+            );
+            return;
+        }
 
+        if (newPassword !== confirmPassword) {
             setPasswordError(
                 "New passwords do not match."
             );
-
             return;
         }
 
-
         try {
-
             setChangingPassword(true);
-
 
             await API.put(
                 `/users/${userId}/change-password`,
                 {
-                    currentPassword:
-                        passwordForm.currentPassword,
-
-                    newPassword:
-                        passwordForm.newPassword
+                    currentPassword,
+                    newPassword
                 }
             );
-
 
             setPasswordMessage(
                 "Password changed successfully."
             );
-
 
             setPasswordForm({
                 currentPassword: "",
@@ -428,54 +478,36 @@ function Profile() {
                 confirmPassword: ""
             });
 
-
         } catch (err) {
-
             console.error(
                 "Failed to change password:",
                 err
             );
 
+            if (err.response?.status === 401) {
+                handleLogout();
+                return;
+            }
 
             setPasswordError(
-                err.response?.data ||
-                "Unable to change password."
+                getErrorMessage(
+                    err,
+                    "Unable to change password."
+                )
             );
 
         } finally {
-
             setChangingPassword(false);
         }
     };
-
-
-    // =====================================================
-    // LOGOUT
-    // =====================================================
-
-    const handleLogout = () => {
-
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-        localStorage.removeItem("role");
-        localStorage.removeItem("user");
-
-
-        navigate("/login", {
-            replace: true
-        });
-    };
-
 
     // =====================================================
     // LOADING
     // =====================================================
 
     if (loading) {
-
         return (
             <div className="profile-loading">
-
                 <div className="profile-loading-card">
 
                     <div className="profile-spinner"></div>
@@ -489,18 +521,15 @@ function Profile() {
                     </p>
 
                 </div>
-
             </div>
         );
     }
-
 
     // =====================================================
     // ERROR
     // =====================================================
 
     if (error && !profile.email) {
-
         return (
             <div className="profile-page">
 
@@ -518,7 +547,6 @@ function Profile() {
                         {error}
                     </p>
 
-
                     <div className="profile-error-actions">
 
                         <button
@@ -528,13 +556,10 @@ function Profile() {
                             Try Again
                         </button>
 
-
                         <button
                             className="profile-secondary-button"
                             onClick={() =>
-                                navigate(
-                                    "/candidate-dashboard"
-                                )
+                                navigate("/dashboard")
                             }
                         >
                             Back to Dashboard
@@ -543,11 +568,9 @@ function Profile() {
                     </div>
 
                 </div>
-
             </div>
         );
     }
-
 
     // =====================================================
     // PROFILE PAGE
@@ -556,10 +579,7 @@ function Profile() {
     return (
         <div className="profile-page">
 
-
-            {/* =================================================
-                PAGE HEADER
-            ================================================= */}
+            {/* PAGE HEADER */}
 
             <div className="profile-header">
 
@@ -580,13 +600,10 @@ function Profile() {
 
                 </div>
 
-
                 <button
                     className="profile-dashboard-button"
                     onClick={() =>
-                        navigate(
-                            "/candidate-dashboard"
-                        )
+                        navigate("/dashboard")
                     }
                 >
                     ← Dashboard
@@ -594,17 +611,11 @@ function Profile() {
 
             </div>
 
-
-            {/* =================================================
-                PROFILE CONTENT
-            ================================================= */}
+            {/* PROFILE CONTENT */}
 
             <div className="profile-grid">
 
-
-                {/* =================================================
-                    PERSONAL INFORMATION
-                ================================================= */}
+                {/* PERSONAL INFORMATION */}
 
                 <section className="profile-card">
 
@@ -628,14 +639,10 @@ function Profile() {
 
                     </div>
 
-
                     <form
                         onSubmit={handleSaveProfile}
                         className="profile-form"
                     >
-
-
-                        {/* NAME */}
 
                         <div className="profile-field">
 
@@ -651,12 +658,10 @@ function Profile() {
                                 onChange={handleProfileChange}
                                 placeholder="Enter your full name"
                                 autoComplete="name"
+                                maxLength={100}
                             />
 
                         </div>
-
-
-                        {/* EMAIL */}
 
                         <div className="profile-field">
 
@@ -679,9 +684,6 @@ function Profile() {
 
                         </div>
 
-
-                        {/* ROLE */}
-
                         <div className="profile-field">
 
                             <label htmlFor="role">
@@ -699,9 +701,6 @@ function Profile() {
 
                         </div>
 
-
-                        {/* CONTACT */}
-
                         <div className="profile-field">
 
                             <label htmlFor="contactNumber">
@@ -712,61 +711,42 @@ function Profile() {
                                 id="contactNumber"
                                 name="contactNumber"
                                 type="tel"
-                                value={
-                                    profile.contactNumber
-                                }
-                                onChange={
-                                    handleProfileChange
-                                }
+                                value={profile.contactNumber}
+                                onChange={handleProfileChange}
                                 placeholder="Enter your contact number"
                                 autoComplete="tel"
+                                maxLength={20}
                             />
 
                         </div>
 
-
-                        {/* MESSAGE */}
-
                         {message && (
-
                             <div className="profile-success-message">
                                 ✓ {message}
                             </div>
-
                         )}
 
-
                         {error && (
-
                             <div className="profile-error-message">
                                 {error}
                             </div>
-
                         )}
-
-
-                        {/* SAVE */}
 
                         <button
                             type="submit"
                             className="profile-save-button"
                             disabled={saving}
                         >
-
                             {saving
                                 ? "Saving..."
                                 : "Save Changes"}
-
                         </button>
 
                     </form>
 
                 </section>
 
-
-                {/* =================================================
-                    ACCOUNT SUMMARY
-                ================================================= */}
+                {/* ACCOUNT SUMMARY */}
 
                 <section className="profile-card">
 
@@ -790,9 +770,7 @@ function Profile() {
 
                     </div>
 
-
                     <div className="account-summary">
-
 
                         <div className="account-summary-row">
 
@@ -805,7 +783,6 @@ function Profile() {
                             </strong>
 
                         </div>
-
 
                         <div className="account-summary-row">
 
@@ -821,7 +798,6 @@ function Profile() {
 
                         </div>
 
-
                         <div className="account-summary-row">
 
                             <span>
@@ -834,12 +810,9 @@ function Profile() {
 
                         </div>
 
-
                     </div>
 
-
                     <div className="profile-divider"></div>
-
 
                     {/* RESUME */}
 
@@ -865,8 +838,8 @@ function Profile() {
 
                         </div>
 
-
                         <button
+                            type="button"
                             onClick={() =>
                                 navigate("/resume")
                             }
@@ -875,7 +848,6 @@ function Profile() {
                         </button>
 
                     </div>
-
 
                     {/* LOGOUT */}
 
@@ -901,8 +873,8 @@ function Profile() {
 
                         </div>
 
-
                         <button
+                            type="button"
                             onClick={handleLogout}
                         >
                             Logout
@@ -912,10 +884,7 @@ function Profile() {
 
                 </section>
 
-
-                {/* =================================================
-                    CHANGE PASSWORD
-                ================================================= */}
+                {/* CHANGE PASSWORD */}
 
                 <section className="profile-card password-card">
 
@@ -940,12 +909,10 @@ function Profile() {
 
                     </div>
 
-
                     <form
                         onSubmit={handleChangePassword}
                         className="profile-form"
                     >
-
 
                         <div className="profile-field">
 
@@ -969,7 +936,6 @@ function Profile() {
 
                         </div>
 
-
                         <div className="profile-field">
 
                             <label htmlFor="newPassword">
@@ -988,10 +954,11 @@ function Profile() {
                                 }
                                 placeholder="Minimum 6 characters"
                                 autoComplete="new-password"
+                                minLength={6}
+                                maxLength={100}
                             />
 
                         </div>
-
 
                         <div className="profile-field">
 
@@ -1011,41 +978,32 @@ function Profile() {
                                 }
                                 placeholder="Re-enter new password"
                                 autoComplete="new-password"
+                                minLength={6}
+                                maxLength={100}
                             />
 
                         </div>
 
-
                         {passwordMessage && (
-
                             <div className="profile-success-message">
                                 ✓ {passwordMessage}
                             </div>
-
                         )}
 
-
                         {passwordError && (
-
                             <div className="profile-error-message">
                                 {passwordError}
                             </div>
-
                         )}
-
 
                         <button
                             type="submit"
                             className="profile-save-button password-button"
-                            disabled={
-                                changingPassword
-                            }
+                            disabled={changingPassword}
                         >
-
                             {changingPassword
                                 ? "Changing Password..."
                                 : "Change Password"}
-
                         </button>
 
                     </form>

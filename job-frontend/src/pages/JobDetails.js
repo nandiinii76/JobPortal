@@ -8,14 +8,15 @@ function JobDetails() {
     const navigate = useNavigate();
 
     const [job, setJob] = useState(null);
-    const [similarJobs, setSimilarJobs] = useState([]);
 
     const [loading, setLoading] = useState(true);
     const [applying, setApplying] = useState(false);
     const [saving, setSaving] = useState(false);
     const [checkingApplication, setCheckingApplication] = useState(false);
+    const [checkingSaved, setCheckingSaved] = useState(false);
 
     const [alreadyApplied, setAlreadyApplied] = useState(false);
+    const [alreadySaved, setAlreadySaved] = useState(false);
 
     const [role, setRole] = useState(
         localStorage.getItem("role")
@@ -26,12 +27,90 @@ function JobDetails() {
     );
 
     // =====================================================
-    // LOAD JOB
+    // NORMALIZE ROLE
     // =====================================================
 
-    useEffect(() => {
-        loadJob();
-    }, [id]);
+    const normalizeRole = (value) => {
+
+        if (!value) {
+            return "";
+        }
+
+        const normalized =
+            String(value)
+                .trim()
+                .toUpperCase();
+
+        if (
+            normalized === "USER" ||
+            normalized === "ROLE_USER" ||
+            normalized === "CANDIDATE" ||
+            normalized === "ROLE_CANDIDATE" ||
+            normalized === "JOBSEEKER" ||
+            normalized === "JOB_SEEKER" ||
+            normalized === "ROLE_JOBSEEKER"
+        ) {
+            return "ROLE_JOB_SEEKER";
+        }
+
+        if (
+            normalized === "EMPLOYER" ||
+            normalized === "ROLE_EMPLOYER"
+        ) {
+            return "ROLE_EMPLOYER";
+        }
+
+        if (
+            normalized === "RECRUITER" ||
+            normalized === "ROLE_RECRUITER"
+        ) {
+            return "ROLE_RECRUITER";
+        }
+
+        if (
+            normalized === "ADMIN" ||
+            normalized === "ROLE_ADMIN"
+        ) {
+            return "ROLE_ADMIN";
+        }
+
+        if (
+            normalized === "SUPER_ADMIN" ||
+            normalized === "ROLE_SUPER_ADMIN"
+        ) {
+            return "ROLE_SUPER_ADMIN";
+        }
+
+        return normalized.startsWith("ROLE_")
+            ? normalized
+            : `ROLE_${normalized}`;
+    };
+
+    // =====================================================
+    // ERROR MESSAGE
+    // =====================================================
+
+    const getErrorMessage = (err, fallback) => {
+
+        const data = err?.response?.data;
+
+        if (
+            typeof data === "string" &&
+            data.trim()
+        ) {
+            return data;
+        }
+
+        if (data?.message) {
+            return data.message;
+        }
+
+        if (data?.error) {
+            return data.error;
+        }
+
+        return fallback;
+    };
 
     // =====================================================
     // LOAD AUTH STATE
@@ -41,9 +120,13 @@ function JobDetails() {
 
         const refreshAuth = () => {
 
-            setRole(localStorage.getItem("role"));
-            setUserId(localStorage.getItem("userId"));
+            setRole(
+                localStorage.getItem("role")
+            );
 
+            setUserId(
+                localStorage.getItem("userId")
+            );
         };
 
         window.addEventListener(
@@ -67,10 +150,19 @@ function JobDetails() {
                 "authChanged",
                 refreshAuth
             );
-
         };
 
     }, []);
+
+    // =====================================================
+    // LOAD JOB
+    // =====================================================
+
+    useEffect(() => {
+
+        loadJob();
+
+    }, [id]);
 
     // =====================================================
     // LOAD JOB
@@ -82,38 +174,12 @@ function JobDetails() {
 
             setLoading(true);
 
-            const jobRes = await API.get(
-                `/jobs/${id}`
-            );
-
-            setJob(jobRes.data);
-
-            // =================================================
-            // LOAD SIMILAR JOBS
-            // =================================================
-
-            try {
-
-                const similarRes = await API.get(
-                    `/jobs/${id}/similar`
+            const response =
+                await API.get(
+                    `/jobs/${id}`
                 );
 
-                setSimilarJobs(
-                    Array.isArray(similarRes.data)
-                        ? similarRes.data
-                        : []
-                );
-
-            } catch (similarError) {
-
-                console.log(
-                    "Similar jobs unavailable:",
-                    similarError
-                );
-
-                setSimilarJobs([]);
-
-            }
+            setJob(response.data);
 
         } catch (err) {
 
@@ -122,39 +188,39 @@ function JobDetails() {
                 err
             );
 
-            alert(
-                "Failed to load job."
-            );
-
             setJob(null);
 
         } finally {
 
             setLoading(false);
-
         }
-
     };
 
     // =====================================================
-    // CHECK WHETHER CANDIDATE ALREADY APPLIED
+    // CHECK APPLICATION + SAVED JOB
     // =====================================================
 
     useEffect(() => {
 
+        const normalizedRole =
+            normalizeRole(role);
+
+        const isJobSeeker =
+            normalizedRole === "ROLE_JOB_SEEKER";
+
         if (
             job?.id &&
             userId &&
-            (
-                role === "ROLE_JOB_SEEKER" ||
-                role === "ROLE_USER" ||
-                role === "CANDIDATE" ||
-                role === "JOB_SEEKER"
-            )
+            isJobSeeker
         ) {
 
             checkApplication();
+            checkSavedJob();
 
+        } else {
+
+            setAlreadyApplied(false);
+            setAlreadySaved(false);
         }
 
     }, [job, userId, role]);
@@ -169,9 +235,10 @@ function JobDetails() {
 
             setCheckingApplication(true);
 
-            const response = await API.get(
-                `/applications/user/${userId}`
-            );
+            const response =
+                await API.get(
+                    "/applications/my"
+                );
 
             const applications =
                 Array.isArray(response.data)
@@ -180,9 +247,17 @@ function JobDetails() {
 
             const exists =
                 applications.some(
-                    (application) =>
-                        String(application.job?.id) ===
-                        String(job.id)
+                    (application) => {
+
+                        const applicationJobId =
+                            application.jobId ??
+                            application.job?.id;
+
+                        return (
+                            String(applicationJobId) ===
+                            String(job.id)
+                        );
+                    }
                 );
 
             setAlreadyApplied(exists);
@@ -194,17 +269,58 @@ function JobDetails() {
                 err
             );
 
-            // Don't prevent the candidate from applying
-            // if the status check itself fails.
-
             setAlreadyApplied(false);
 
         } finally {
 
             setCheckingApplication(false);
-
         }
+    };
 
+    // =====================================================
+    // CHECK SAVED JOB
+    // =====================================================
+
+    const checkSavedJob = async () => {
+
+        try {
+
+            setCheckingSaved(true);
+
+            /*
+             * The backend now gets the user
+             * from the JWT.
+             *
+             * GET /saved-jobs/check?jobId={jobId}
+             */
+
+            const response =
+                await API.get(
+                    "/saved-jobs/check",
+                    {
+                        params: {
+                            jobId: job.id
+                        }
+                    }
+                );
+
+            setAlreadySaved(
+                response.data === true
+            );
+
+        } catch (err) {
+
+            console.error(
+                "Check saved job error:",
+                err
+            );
+
+            setAlreadySaved(false);
+
+        } finally {
+
+            setCheckingSaved(false);
+        }
     };
 
     // =====================================================
@@ -213,11 +329,10 @@ function JobDetails() {
 
     const applyJob = async () => {
 
-        // =================================================
-        // CHECK LOGIN
-        // =================================================
+        const token =
+            localStorage.getItem("token");
 
-        if (!userId) {
+        if (!token || !userId) {
 
             alert(
                 "Please login before applying for a job."
@@ -226,12 +341,7 @@ function JobDetails() {
             navigate("/login");
 
             return;
-
         }
-
-        // =================================================
-        // CHECK JOB
-        // =================================================
 
         if (!job?.id) {
 
@@ -240,35 +350,22 @@ function JobDetails() {
             );
 
             return;
-
         }
 
-        // =================================================
-        // CHECK ROLE
-        // =================================================
-
         const normalizedRole =
-            role?.trim().toUpperCase();
+            normalizeRole(role);
 
-        const isJobSeeker =
-            normalizedRole === "ROLE_JOB_SEEKER" ||
-            normalizedRole === "ROLE_USER" ||
-            normalizedRole === "CANDIDATE" ||
-            normalizedRole === "JOB_SEEKER";
-
-        if (!isJobSeeker) {
+        if (
+            normalizedRole !==
+            "ROLE_JOB_SEEKER"
+        ) {
 
             alert(
                 "Only job seekers can apply for jobs."
             );
 
             return;
-
         }
-
-        // =================================================
-        // DUPLICATE CHECK
-        // =================================================
 
         if (alreadyApplied) {
 
@@ -277,7 +374,6 @@ function JobDetails() {
             );
 
             return;
-
         }
 
         try {
@@ -285,14 +381,16 @@ function JobDetails() {
             setApplying(true);
 
             /*
-             * Backend endpoint:
+             * POST /applications/apply/{jobId}
              *
-             * POST /applications/apply/{userId}/{jobId}
+             * User ID is NOT sent.
+             * Backend gets user from JWT.
              */
 
-            const response = await API.post(
-                `/applications/apply/${userId}/${job.id}`
-            );
+            const response =
+                await API.post(
+                    `/applications/apply/${job.id}`
+                );
 
             console.log(
                 "Application response:",
@@ -312,32 +410,35 @@ function JobDetails() {
                 err
             );
 
-            if (err.response) {
+            if (
+                err.response?.status === 401
+            ) {
 
-                const message =
-                    typeof err.response.data === "string"
-                        ? err.response.data
-                        : err.response.data?.message;
+                localStorage.removeItem("token");
+                localStorage.removeItem("userId");
+                localStorage.removeItem("role");
+                localStorage.removeItem("user");
 
-                alert(
-                    message ||
-                    `Failed to apply. Server returned ${err.response.status}.`
+                window.dispatchEvent(
+                    new Event("authChanged")
                 );
 
-            } else {
+                navigate("/login");
 
-                alert(
-                    "Cannot connect to backend server."
-                );
-
+                return;
             }
+
+            alert(
+                getErrorMessage(
+                    err,
+                    "Failed to apply for this job."
+                )
+            );
 
         } finally {
 
             setApplying(false);
-
         }
-
     };
 
     // =====================================================
@@ -346,7 +447,10 @@ function JobDetails() {
 
     const saveJob = async () => {
 
-        if (!userId) {
+        const token =
+            localStorage.getItem("token");
+
+        if (!token || !userId) {
 
             alert(
                 "Please login first."
@@ -355,7 +459,6 @@ function JobDetails() {
             navigate("/login");
 
             return;
-
         }
 
         if (!job?.id) {
@@ -365,28 +468,47 @@ function JobDetails() {
             );
 
             return;
+        }
 
+        if (alreadySaved) {
+
+            alert(
+                "This job is already saved."
+            );
+
+            return;
         }
 
         try {
 
             setSaving(true);
 
-            const response = await API.post(
-                "/saved/save",
-                null,
-                {
-                    params: {
-                        userId: userId,
-                        jobId: job.id
+            /*
+             * SECURED ENDPOINT
+             *
+             * POST /saved-jobs?jobId={jobId}
+             *
+             * User ID is NOT sent.
+             * Backend gets user from JWT.
+             */
+
+            const response =
+                await API.post(
+                    "/saved-jobs",
+                    null,
+                    {
+                        params: {
+                            jobId: job.id
+                        }
                     }
-                }
-            );
+                );
 
             console.log(
                 "Save response:",
                 response.data
             );
+
+            setAlreadySaved(true);
 
             alert(
                 "Job saved successfully!"
@@ -399,32 +521,35 @@ function JobDetails() {
                 err
             );
 
-            if (err.response) {
+            if (
+                err.response?.status === 401
+            ) {
 
-                const message =
-                    typeof err.response.data === "string"
-                        ? err.response.data
-                        : err.response.data?.message;
+                localStorage.removeItem("token");
+                localStorage.removeItem("userId");
+                localStorage.removeItem("role");
+                localStorage.removeItem("user");
 
-                alert(
-                    message ||
-                    `Failed to save job. Status: ${err.response.status}`
+                window.dispatchEvent(
+                    new Event("authChanged")
                 );
 
-            } else {
+                navigate("/login");
 
-                alert(
-                    "Cannot connect to backend server."
-                );
-
+                return;
             }
+
+            alert(
+                getErrorMessage(
+                    err,
+                    "Failed to save job."
+                )
+            );
 
         } finally {
 
             setSaving(false);
-
         }
-
     };
 
     // =====================================================
@@ -442,9 +567,7 @@ function JobDetails() {
                 </h2>
 
             </div>
-
         );
-
     }
 
     // =====================================================
@@ -464,7 +587,10 @@ function JobDetails() {
                     </h2>
 
                     <button
-                        onClick={() => navigate("/jobs")}
+                        type="button"
+                        onClick={() =>
+                            navigate("/jobs")
+                        }
                         className="mt-6 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
                     >
                         Browse Jobs
@@ -473,23 +599,20 @@ function JobDetails() {
                 </div>
 
             </div>
-
         );
-
     }
 
     // =====================================================
     // ROLE CHECK
     // =====================================================
 
-    const normalizedRole =
-        role?.trim().toUpperCase();
-
     const isJobSeeker =
-        normalizedRole === "ROLE_JOB_SEEKER" ||
-        normalizedRole === "ROLE_USER" ||
-        normalizedRole === "CANDIDATE" ||
-        normalizedRole === "JOB_SEEKER";
+        normalizeRole(role) ===
+        "ROLE_JOB_SEEKER";
+
+    // =====================================================
+    // PAGE
+    // =====================================================
 
     return (
 
@@ -514,15 +637,19 @@ function JobDetails() {
                         <div>
 
                             <p>
+
                                 <strong>
                                     Company:
                                 </strong>{" "}
+
                                 {job.company || "N/A"}
+
                             </p>
 
                             {job.employer && (
 
                                 <button
+                                    type="button"
                                     onClick={() =>
                                         navigate(
                                             `/company/${job.employer.id}`
@@ -532,7 +659,6 @@ function JobDetails() {
                                 >
                                     View Company Profile
                                 </button>
-
                             )}
 
                         </div>
@@ -563,14 +689,61 @@ function JobDetails() {
 
                         </p>
 
+                        {/* JOB TYPE */}
+
+                        {job.jobType && (
+
+                            <p>
+
+                                <strong>
+                                    Job Type:
+                                </strong>{" "}
+
+                                {job.jobType}
+
+                            </p>
+                        )}
+
+                        {/* EXPERIENCE */}
+
+                        {job.experienceLevel && (
+
+                            <p>
+
+                                <strong>
+                                    Experience:
+                                </strong>{" "}
+
+                                {job.experienceLevel}
+
+                            </p>
+                        )}
+
+                        {/* CATEGORY */}
+
+                        {job.category && (
+
+                            <p>
+
+                                <strong>
+                                    Category:
+                                </strong>{" "}
+
+                                {job.category}
+
+                            </p>
+                        )}
+
                         {/* DESCRIPTION */}
 
                         <div>
 
                             <p>
+
                                 <strong>
                                     Description:
                                 </strong>
+
                             </p>
 
                             <p className="text-gray-700 leading-7 mt-2">
@@ -599,6 +772,7 @@ function JobDetails() {
                                 {alreadyApplied ? (
 
                                     <button
+                                        type="button"
                                         disabled
                                         className="bg-gray-400 text-white px-6 py-3 rounded-lg cursor-not-allowed"
                                     >
@@ -608,6 +782,7 @@ function JobDetails() {
                                 ) : (
 
                                     <button
+                                        type="button"
                                         onClick={applyJob}
                                         disabled={
                                             applying ||
@@ -628,30 +803,41 @@ function JobDetails() {
                                                 : "Apply Now"}
 
                                     </button>
-
                                 )}
 
                                 {/* SAVE */}
 
                                 <button
+                                    type="button"
                                     onClick={saveJob}
-                                    disabled={saving}
+                                    disabled={
+                                        saving ||
+                                        alreadySaved ||
+                                        checkingSaved
+                                    }
                                     className={`${
-                                        saving
+                                        saving ||
+                                        alreadySaved ||
+                                        checkingSaved
                                             ? "bg-gray-400 cursor-not-allowed"
                                             : "bg-blue-600 hover:bg-blue-700"
                                     } text-white px-6 py-3 rounded-lg`}
                                 >
 
-                                    {saving
-                                        ? "Saving..."
-                                        : "Save Job"}
+                                    {checkingSaved
+                                        ? "Checking..."
+                                        : alreadySaved
+                                            ? "✓ Saved"
+                                            : saving
+                                                ? "Saving..."
+                                                : "Save Job"}
 
                                 </button>
 
                                 {/* MY APPLICATIONS */}
 
                                 <button
+                                    type="button"
                                     onClick={() =>
                                         navigate(
                                             "/my-applications"
@@ -663,13 +849,15 @@ function JobDetails() {
                                 </button>
 
                             </>
-
                         )}
 
                         {/* BACK */}
 
                         <button
-                            onClick={() => navigate(-1)}
+                            type="button"
+                            onClick={() =>
+                                navigate(-1)
+                            }
                             className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg"
                         >
                             Back
@@ -679,117 +867,10 @@ function JobDetails() {
 
                 </div>
 
-                {/* =================================================
-                    SIMILAR JOBS
-                ================================================= */}
-
-                <div className="mt-10">
-
-                    <h2 className="text-3xl font-bold mb-6">
-                        Similar Jobs
-                    </h2>
-
-                    {similarJobs.length === 0 ? (
-
-                        <div className="bg-white rounded-xl shadow p-6 text-center">
-
-                            No Similar Jobs Found
-
-                        </div>
-
-                    ) : (
-
-                        <div className="grid md:grid-cols-2 gap-6">
-
-                            {similarJobs.map((item) => (
-
-                                <div
-                                    key={item.id}
-                                    className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition"
-                                >
-
-                                    <h3 className="text-2xl font-bold text-blue-600">
-                                        {item.title}
-                                    </h3>
-
-                                    <div className="mt-2">
-
-                                        <p>
-
-                                            <strong>
-                                                Company:
-                                            </strong>{" "}
-
-                                            {item.company || "N/A"}
-
-                                        </p>
-
-                                        {item.employer && (
-
-                                            <button
-                                                onClick={() =>
-                                                    navigate(
-                                                        `/company/${item.employer.id}`
-                                                    )
-                                                }
-                                                className="text-blue-600 hover:text-blue-800 underline mt-1"
-                                            >
-                                                View Company
-                                            </button>
-
-                                        )}
-
-                                    </div>
-
-                                    <p className="mt-2">
-
-                                        <strong>
-                                            Location:
-                                        </strong>{" "}
-
-                                        {item.location || "N/A"}
-
-                                    </p>
-
-                                    <p className="mt-2">
-
-                                        <strong>
-                                            Salary:
-                                        </strong>{" "}
-
-                                        {item.salary != null
-                                            ? `₹${item.salary}`
-                                            : "Not specified"}
-
-                                    </p>
-
-                                    <button
-                                        onClick={() =>
-                                            navigate(
-                                                `/jobs/${item.id}`
-                                            )
-                                        }
-                                        className="mt-5 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg"
-                                    >
-                                        View Details
-                                    </button>
-
-                                </div>
-
-                            ))}
-
-                        </div>
-
-                    )}
-
-                </div>
-
             </div>
 
         </div>
-
     );
-
 }
 
 export default JobDetails;

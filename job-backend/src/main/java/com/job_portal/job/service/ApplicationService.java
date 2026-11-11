@@ -1,11 +1,12 @@
 package com.job_portal.job.service;
 
 import java.util.List;
+import java.util.Locale;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.job_portal.job.dto.EmployerAnalyticsResponse;
 import com.job_portal.job.model.Application;
 import com.job_portal.job.model.Job;
 import com.job_portal.job.model.User;
@@ -17,68 +18,79 @@ import com.job_portal.job.repository.UserRepository;
 @Transactional
 public class ApplicationService {
 
-    @Autowired
-    private ApplicationRepository appRepo;
+    private final ApplicationRepository applicationRepository;
+    private final UserRepository userRepository;
+    private final JobRepository jobRepository;
+    private final NotificationService notificationService;
+    private final EmailService emailService;
 
-    @Autowired
-    private UserRepository userRepo;
+    public ApplicationService(
+            ApplicationRepository applicationRepository,
+            UserRepository userRepository,
+            JobRepository jobRepository,
+            NotificationService notificationService,
+            EmailService emailService) {
 
-    @Autowired
-    private JobRepository jobRepo;
-
-    @Autowired
-    private NotificationService notificationService;
-
-    @Autowired
-    private EmailService emailService;
-
+        this.applicationRepository = applicationRepository;
+        this.userRepository = userRepository;
+        this.jobRepository = jobRepository;
+        this.notificationService = notificationService;
+        this.emailService = emailService;
+    }
 
     // =====================================================
     // APPLY FOR JOB
     // =====================================================
 
-    public Application applyJob(Long userId, Long jobId) {
+    public Application applyJob(
+            String userEmail,
+            Long jobId) {
 
-        User user = userRepo.findById(userId).orElse(null);
-        Job job = jobRepo.findById(jobId).orElse(null);
+        String email = normalizeEmail(userEmail);
 
-        if (user == null || job == null) {
-            return null;
+        if (jobId == null) {
+            throw new IllegalArgumentException(
+                    "Job ID is required"
+            );
         }
 
-        // =================================================
-        // ONLY JOB SEEKER CAN APPLY
-        // =================================================
+        User user = findUserByEmail(email);
 
-        if (user.getRole() == null ||
-                !"ROLE_JOB_SEEKER".equalsIgnoreCase(
-                        user.getRole().trim())) {
-
-            return null;
+        if (user == null) {
+            throw new IllegalArgumentException(
+                    "User not found"
+            );
         }
 
-        // =================================================
-        // EMPLOYER CANNOT APPLY TO OWN JOB
-        // =================================================
-
-        if (job.getEmployer() != null &&
-                job.getEmployer().getId() != null &&
-                job.getEmployer().getId().equals(userId)) {
-
-            return null;
+        if (!isJobSeekerRole(user.getRole())) {
+            throw new IllegalArgumentException(
+                    "Only job seekers can apply for jobs"
+            );
         }
 
-        // =================================================
-        // PREVENT DUPLICATE APPLICATION
-        // =================================================
+        Job job = jobRepository.findById(jobId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Job not found with ID: " + jobId
+                        )
+                );
 
-        if (appRepo.existsByUserIdAndJobId(userId, jobId)) {
-            return null;
+        if (job.getEmployer() != null
+                && job.getEmployer().getId() != null
+                && job.getEmployer().getId().equals(user.getId())) {
+
+            throw new IllegalArgumentException(
+                    "You cannot apply to your own job"
+            );
         }
 
-        // =================================================
-        // CREATE APPLICATION
-        // =================================================
+        if (applicationRepository
+                .existsByUserIdAndJobId(user.getId(), jobId)) {
+
+            throw new IllegalArgumentException(
+                    "You have already applied for this job"
+            );
+        }
 
         Application application = new Application();
 
@@ -86,467 +98,680 @@ public class ApplicationService {
         application.setJob(job);
         application.setStatus("APPLIED");
 
-        Application saved = appRepo.save(application);
+        Application saved =
+                applicationRepository.save(application);
 
-        // =================================================
-        // NOTIFICATION
-        // =================================================
-
-        notificationService.createNotification(
-                user.getId(),
-                "You successfully applied for "
-                        + safe(job.getTitle()),
-                "APPLICATION"
-        );
-
-        // =================================================
-        // EMAIL
-        // =================================================
-
-        sendApplicationEmail(
-                user,
-                job,
-                "Application Submitted - "
-                        + safe(job.getTitle()),
-                """
-                Your application has been submitted successfully.
-
-                Job Title : %s
-                Company   : %s
-                Status    : APPLIED
-
-                We will notify you when the employer
-                updates your application status.
-                """.formatted(
-                        safe(job.getTitle()),
-                        safe(job.getCompany())
-                )
-        );
+        sendApplicationNotification(saved);
+        sendApplicationEmail(saved);
 
         return saved;
     }
 
-
     // =====================================================
-    // GET APPLICATION BY ID
+    // GET APPLICATION
     // =====================================================
 
-    public Application getApplication(Long applicationId) {
+    @Transactional(readOnly = true)
+    public Application getApplication(Long id) {
 
-        if (applicationId == null) {
-            return null;
+        if (id == null) {
+            throw new IllegalArgumentException(
+                    "Application ID is required"
+            );
         }
 
-        return appRepo.findById(applicationId)
-                .orElse(null);
+        return applicationRepository.findById(id)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Application not found with ID: " + id
+                        )
+                );
     }
 
+    // =====================================================
+    // GET APPLICATIONS FOR USER
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public List<Application> getApplicationsForUser(
+            String email) {
+
+        User user = findUserByEmail(
+                normalizeEmail(email)
+        );
+
+        if (user == null) {
+            throw new IllegalArgumentException(
+                    "User not found"
+            );
+        }
+
+        return applicationRepository.findByUserId(
+                user.getId()
+        );
+    }
 
     // =====================================================
-    // APPLICATIONS BY USER
+    // GET APPLICATIONS BY USER ID
     // =====================================================
 
+    @Transactional(readOnly = true)
     public List<Application> getApplicationsByUser(
             Long userId) {
 
         if (userId == null) {
-            return List.of();
+            throw new IllegalArgumentException(
+                    "User ID is required"
+            );
         }
 
-        return appRepo.findByUserId(userId);
+        return applicationRepository.findByUserId(userId);
     }
 
-
     // =====================================================
-    // APPLICATIONS BY JOB
+    // GET APPLICATIONS BY JOB
     // =====================================================
 
+    @Transactional(readOnly = true)
     public List<Application> getApplicationsByJob(
             Long jobId) {
 
         if (jobId == null) {
-            return List.of();
+            throw new IllegalArgumentException(
+                    "Job ID is required"
+            );
         }
 
-        return appRepo.findByJobId(jobId);
+        return applicationRepository.findByJobId(jobId);
     }
 
-
     // =====================================================
-    // APPLICATIONS BY EMPLOYER
+    // CHECK JOB OWNERSHIP
     // =====================================================
 
-    public List<Application> getApplicationsByEmployer(
-            Long employerId) {
+    @Transactional(readOnly = true)
+    public boolean isJobOwnedByEmployer(
+            Long jobId,
+            String employerEmail) {
 
-        if (employerId == null) {
-            return List.of();
+        if (jobId == null ||
+                employerEmail == null ||
+                employerEmail.trim().isEmpty()) {
+
+            return false;
         }
 
-        return appRepo.findByJobEmployerId(employerId);
+        User employer =
+                findUserByEmail(
+                        normalizeEmail(employerEmail)
+                );
+
+        if (employer == null ||
+                employer.getId() == null) {
+
+            return false;
+        }
+
+        Job job =
+                jobRepository.findById(jobId)
+                        .orElse(null);
+
+        if (job == null ||
+                job.getEmployer() == null ||
+                job.getEmployer().getId() == null) {
+
+            return false;
+        }
+
+        return job.getEmployer()
+                .getId()
+                .equals(employer.getId());
     }
 
+    // =====================================================
+    // GET EMPLOYER APPLICATIONS
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public List<Application> getApplicationsForEmployer(
+            String employerEmail) {
+
+        User employer =
+                findUserByEmail(
+                        normalizeEmail(employerEmail)
+                );
+
+        if (employer == null) {
+            throw new IllegalArgumentException(
+                    "Employer account not found"
+            );
+        }
+
+        validateEmployerRole(employer);
+
+        return applicationRepository
+                .findByJobEmployerId(
+                        employer.getId()
+                );
+    }
 
     // =====================================================
-    // APPLICATIONS BY STATUS
+    // GET EMPLOYER APPLICATIONS BY STATUS
     // =====================================================
 
-    public List<Application> getApplicationsByStatus(
+    @Transactional(readOnly = true)
+    public List<Application> getApplicationsByEmployerAndStatus(
+            String employerEmail,
             String status) {
 
-        if (status == null ||
-                status.trim().isEmpty()) {
+        User employer =
+                findUserByEmail(
+                        normalizeEmail(employerEmail)
+                );
 
-            return List.of();
+        if (employer == null) {
+            throw new IllegalArgumentException(
+                    "Employer account not found"
+            );
         }
+
+        validateEmployerRole(employer);
 
         String normalizedStatus =
-                status.trim().toUpperCase();
+                normalizeStatus(status);
 
-        if (!isValidStatus(normalizedStatus)) {
-            return List.of();
-        }
-
-        return appRepo.findByStatus(normalizedStatus);
+        return applicationRepository
+                .findByJobEmployerIdAndStatus(
+                        employer.getId(),
+                        normalizedStatus
+                );
     }
 
-
     // =====================================================
-    // UPDATE APPLICATION STATUS
+    // UPDATE STATUS
     // =====================================================
 
     public Application updateStatus(
             Long applicationId,
             String status) {
 
-        // =================================================
-        // FIND APPLICATION
-        // =================================================
+        Application application =
+                getApplication(applicationId);
+
+        String normalizedStatus =
+                normalizeStatus(status);
+
+        application.setStatus(normalizedStatus);
+
+        Application saved =
+                applicationRepository.save(application);
+
+        sendStatusNotification(saved);
+        sendStatusEmail(saved);
+
+        return saved;
+    }
+
+    // =====================================================
+    // UPDATE STATUS FOR EMPLOYER
+    // =====================================================
+
+    public Application updateStatusForEmployer(
+            Long applicationId,
+            String status,
+            String employerEmail) {
 
         Application application =
-                appRepo.findById(applicationId)
-                        .orElse(null);
+                getApplication(applicationId);
 
-        if (application == null) {
-            return null;
-        }
-
-        // =================================================
-        // VALIDATE STATUS
-        // =================================================
-
-        if (status == null ||
-                status.trim().isEmpty()) {
-
-            return null;
-        }
-
-        String newStatus =
-                status.trim().toUpperCase();
-
-        if (!isValidStatus(newStatus)) {
-            return null;
-        }
-
-        // =================================================
-        // GET OLD STATUS
-        // =================================================
-
-        String oldStatus =
-                application.getStatus();
-
-        if (oldStatus != null) {
-            oldStatus = oldStatus.trim().toUpperCase();
-        }
-
-        // =================================================
-        // NO CHANGE
-        // =================================================
-
-        if (newStatus.equals(oldStatus)) {
-            return application;
-        }
-
-        // =================================================
-        // UPDATE STATUS
-        // =================================================
-
-        application.setStatus(newStatus);
-
-        Application updated =
-                appRepo.save(application);
-
-        // =================================================
-        // GET USER + JOB
-        // =================================================
-
-        User user =
-                application.getUser();
-
-        Job job =
-                application.getJob();
-
-        if (user == null || job == null) {
-            return updated;
-        }
-
-        // =================================================
-        // CREATE STATUS MESSAGE
-        // =================================================
-
-        String message =
-                createStatusMessage(
-                        newStatus,
-                        job.getTitle()
+        User employer =
+                findUserByEmail(
+                        normalizeEmail(employerEmail)
                 );
 
-        // =================================================
-        // CREATE NOTIFICATION
-        // =================================================
-
-        notificationService.createNotification(
-                user.getId(),
-                message,
-                "APPLICATION"
-        );
-
-        // =================================================
-        // EMAIL
-        // =================================================
-
-        sendApplicationEmail(
-                user,
-                job,
-                "Application Status Updated - "
-                        + safe(job.getTitle()),
-                """
-                %s
-
-                Job Title : %s
-                Company   : %s
-                Previous Status : %s
-                Current Status  : %s
-                """.formatted(
-                        message,
-                        safe(job.getTitle()),
-                        safe(job.getCompany()),
-                        safeStatus(oldStatus),
-                        newStatus
-                )
-        );
-
-        return updated;
-    }
-
-
-    // =====================================================
-    // CREATE STATUS MESSAGE
-    // =====================================================
-
-    private String createStatusMessage(
-            String status,
-            String jobTitle) {
-
-        String title =
-                safe(jobTitle);
-
-        return switch (status) {
-
-            case "SHORTLISTED" ->
-                    "Congratulations! You have been shortlisted for "
-                    + title + ".";
-
-            case "INTERVIEW" ->
-                    "Your application for "
-                    + title
-                    + " has moved to the interview stage.";
-
-            case "HIRED" ->
-                    "Congratulations! You have been hired for "
-                    + title + ".";
-
-            case "REJECTED" ->
-                    "Your application for "
-                    + title
-                    + " has been rejected.";
-
-            case "APPLIED" ->
-                    "Your application for "
-                    + title
-                    + " is now marked as APPLIED.";
-
-            default ->
-                    "Your application status for "
-                    + title
-                    + " has been updated to "
-                    + status
-                    + ".";
-        };
-    }
-
-
-    // =====================================================
-    // VALID STATUS
-    // =====================================================
-
-    private boolean isValidStatus(
-            String status) {
-
-        return "APPLIED".equals(status)
-                || "SHORTLISTED".equals(status)
-                || "INTERVIEW".equals(status)
-                || "REJECTED".equals(status)
-                || "HIRED".equals(status);
-    }
-
-
-    // =====================================================
-    // DELETE APPLICATION
-    // =====================================================
-
-    public boolean deleteApplication(
-            Long applicationId) {
-
-        if (applicationId == null) {
-            return false;
+        if (employer == null) {
+            throw new IllegalArgumentException(
+                    "Employer account not found"
+            );
         }
 
-        if (!appRepo.existsById(applicationId)) {
-            return false;
+        validateEmployerRole(employer);
+
+        Job job = application.getJob();
+
+        if (job == null ||
+                job.getEmployer() == null ||
+                job.getEmployer().getId() == null ||
+                !job.getEmployer()
+                        .getId()
+                        .equals(employer.getId())) {
+
+            throw new IllegalArgumentException(
+                    "You are not authorized to update this application"
+            );
         }
 
-        appRepo.deleteById(applicationId);
+        String normalizedStatus =
+                normalizeStatus(status);
 
-        return true;
+        application.setStatus(normalizedStatus);
+
+        Application saved =
+                applicationRepository.save(application);
+
+        sendStatusNotification(saved);
+        sendStatusEmail(saved);
+
+        return saved;
     }
 
-
     // =====================================================
-    // EMPLOYER ANALYTICS
+    // DELETE APPLICATION FOR USER
     // =====================================================
 
-    public long totalApplications(
-            Long employerId) {
+    public void deleteApplicationForUser(
+            Long applicationId,
+            String userEmail) {
 
-        if (employerId == null) {
-            return 0;
+        Application application =
+                getApplication(applicationId);
+
+        User user =
+                findUserByEmail(
+                        normalizeEmail(userEmail)
+                );
+
+        if (user == null) {
+            throw new IllegalArgumentException(
+                    "User not found"
+            );
         }
 
-        return appRepo.countApplicationsByEmployer(
-                employerId
-        );
-    }
+        if (application.getUser() == null ||
+                application.getUser().getId() == null ||
+                !application.getUser()
+                        .getId()
+                        .equals(user.getId())) {
 
+            throw new IllegalArgumentException(
+                    "You are not authorized to delete this application"
+            );
+        }
+
+        applicationRepository.delete(application);
+    }
 
     // =====================================================
     // TOTAL APPLICATIONS
     // =====================================================
 
-    public long totalApplications() {
+    @Transactional(readOnly = true)
+    public long getTotalApplications() {
 
-        return appRepo.count();
+        return applicationRepository.count();
     }
 
-
     // =====================================================
-    // APPLIED APPLICATIONS
-    // =====================================================
-
-    public long totalPending() {
-
-        return appRepo.countByStatus("APPLIED");
-    }
-
-
-    // =====================================================
-    // SHORTLISTED APPLICATIONS
+    // COUNT BY STATUS
     // =====================================================
 
-    public long totalShortlisted() {
+    @Transactional(readOnly = true)
+    public long countByStatus(String status) {
 
-        return appRepo.countByStatus("SHORTLISTED");
-    }
-
-
-    // =====================================================
-    // INTERVIEW APPLICATIONS
-    // =====================================================
-
-    public long totalInterview() {
-
-        return appRepo.countByStatus("INTERVIEW");
-    }
-
-
-    // =====================================================
-    // REJECTED APPLICATIONS
-    // =====================================================
-
-    public long totalRejected() {
-
-        return appRepo.countByStatus("REJECTED");
-    }
-
-
-    // =====================================================
-    // HIRED APPLICATIONS
-    // =====================================================
-
-    public long totalHired() {
-
-        return appRepo.countByStatus("HIRED");
-    }
-
-
-    // =====================================================
-    // SEND APPLICATION EMAIL
-    // =====================================================
-
-    private void sendApplicationEmail(
-            User user,
-            Job job,
-            String subject,
-            String message) {
-
-        if (user == null ||
-                user.getEmail() == null ||
-                user.getEmail().trim().isEmpty()) {
-
-            return;
-        }
-
-        emailService.sendEmail(
-                user.getEmail(),
-
-                subject,
-
-                """
-                Dear %s,
-
-                %s
-
-                Regards,
-                Job Portal Team
-                """.formatted(
-                        safe(user.getName()),
-                        message
-                )
+        return applicationRepository.countByStatus(
+                normalizeStatus(status)
         );
     }
 
+    // =====================================================
+    // EMPLOYER ANALYTICS
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public EmployerAnalyticsResponse getEmployerAnalytics(
+            String employerEmail) {
+
+        User employer =
+                findUserByEmail(
+                        normalizeEmail(employerEmail)
+                );
+
+        if (employer == null) {
+            throw new IllegalArgumentException(
+                    "Employer account not found"
+            );
+        }
+
+        validateEmployerRole(employer);
+
+        Long employerId = employer.getId();
+
+        long totalApplications =
+                applicationRepository
+                        .countByJobEmployerId(employerId);
+
+        long applied =
+                applicationRepository
+                        .countByJobEmployerIdAndStatus(
+                                employerId,
+                                "APPLIED"
+                        );
+
+        long shortlisted =
+                applicationRepository
+                        .countByJobEmployerIdAndStatus(
+                                employerId,
+                                "SHORTLISTED"
+                        );
+
+        long interview =
+                applicationRepository
+                        .countByJobEmployerIdAndStatus(
+                                employerId,
+                                "INTERVIEW"
+                        );
+
+        long rejected =
+                applicationRepository
+                        .countByJobEmployerIdAndStatus(
+                                employerId,
+                                "REJECTED"
+                        );
+
+        long hired =
+                applicationRepository
+                        .countByJobEmployerIdAndStatus(
+                                employerId,
+                                "HIRED"
+                        );
+
+        return EmployerAnalyticsResponse.builder()
+                .totalApplications(totalApplications)
+                .applied(applied)
+                .shortlisted(shortlisted)
+                .interview(interview)
+                .rejected(rejected)
+                .hired(hired)
+                .build();
+    }
 
     // =====================================================
-    // SAFE STRING
+    // USER ID BY EMAIL
+    // =====================================================
+
+    @Transactional(readOnly = true)
+    public Long getUserIdByEmail(String email) {
+
+        User user =
+                findUserByEmail(
+                        normalizeEmail(email)
+                );
+
+        if (user == null) {
+            throw new IllegalArgumentException(
+                    "User not found"
+            );
+        }
+
+        return user.getId();
+    }
+
+    // =====================================================
+    // FIND USER
+    // =====================================================
+
+    private User findUserByEmail(String email) {
+
+        if (email == null ||
+                email.trim().isEmpty()) {
+
+            return null;
+        }
+
+        return userRepository.findByEmail(
+                email.trim().toLowerCase(Locale.ROOT)
+        );
+    }
+
+    // =====================================================
+    // EMPLOYER ROLE VALIDATION
+    // =====================================================
+
+    private void validateEmployerRole(User user) {
+
+        if (user == null ||
+                user.getRole() == null) {
+
+            throw new IllegalArgumentException(
+                    "Only employers or recruiters can manage applications"
+            );
+        }
+
+        String role =
+                user.getRole()
+                        .trim()
+                        .toUpperCase(Locale.ROOT);
+
+        if (!role.equals("ROLE_EMPLOYER")
+                && !role.equals("EMPLOYER")
+                && !role.equals("ROLE_RECRUITER")
+                && !role.equals("RECRUITER")) {
+
+            throw new IllegalArgumentException(
+                    "Only employers or recruiters can manage applications"
+            );
+        }
+    }
+
+    // =====================================================
+    // JOB SEEKER ROLE
+    // =====================================================
+
+    private boolean isJobSeekerRole(String role) {
+
+        if (role == null) {
+            return false;
+        }
+
+        String normalized =
+                role.trim()
+                        .toUpperCase(Locale.ROOT);
+
+        return normalized.equals("ROLE_JOB_SEEKER")
+                || normalized.equals("JOB_SEEKER")
+                || normalized.equals("ROLE_USER")
+                || normalized.equals("USER")
+                || normalized.equals("ROLE_CANDIDATE")
+                || normalized.equals("CANDIDATE");
+    }
+
+    // =====================================================
+    // STATUS NORMALIZATION
+    // =====================================================
+
+    private String normalizeStatus(String status) {
+
+        if (status == null ||
+                status.trim().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Application status is required"
+            );
+        }
+
+        String normalized =
+                status.trim()
+                        .toUpperCase(Locale.ROOT);
+
+        if (!isValidStatus(normalized)) {
+
+            throw new IllegalArgumentException(
+                    "Invalid application status: " + status
+            );
+        }
+
+        return normalized;
+    }
+
+    // =====================================================
+    // VALID STATUS
+    // =====================================================
+
+    private boolean isValidStatus(String status) {
+
+        return status.equals("APPLIED")
+                || status.equals("SHORTLISTED")
+                || status.equals("INTERVIEW")
+                || status.equals("REJECTED")
+                || status.equals("HIRED");
+    }
+
+    // =====================================================
+    // APPLICATION NOTIFICATION
+    // =====================================================
+
+    private void sendApplicationNotification(
+            Application application) {
+
+        try {
+            if (application == null ||
+                    application.getJob() == null ||
+                    application.getJob().getEmployer() == null ||
+                    application.getJob().getEmployer().getId() == null) {
+                return;
+            }
+
+            notificationService.createNotification(
+                    application.getJob()
+                            .getEmployer()
+                            .getId(),
+                    "NEW_APPLICATION",
+                    "New application received for "
+                            + safe(application.getJob().getTitle())
+            );
+
+        } catch (Exception ignored) {
+            // Notification failure should not prevent
+            // successful application creation.
+        }
+    }
+
+    // =====================================================
+    // STATUS NOTIFICATION
+    // =====================================================
+
+    private void sendStatusNotification(
+            Application application) {
+
+        try {
+            if (application == null ||
+                    application.getUser() == null ||
+                    application.getUser().getId() == null) {
+                return;
+            }
+
+            notificationService.createNotification(
+                    application.getUser().getId(),
+                    "APPLICATION_STATUS",
+                    "Your application status is now "
+                            + safeStatus(application.getStatus())
+            );
+
+        } catch (Exception ignored) {
+            // Notification failure should not break
+            // application status update.
+        }
+    }
+
+    // =====================================================
+    // APPLICATION EMAIL
+    // =====================================================
+
+    private void sendApplicationEmail(
+            Application application) {
+
+        try {
+            if (application == null ||
+                    application.getUser() == null ||
+                    application.getUser().getEmail() == null) {
+                return;
+            }
+
+            emailService.sendEmail(
+                    application.getUser().getEmail(),
+                    "Job Application Submitted",
+                    "Your application for "
+                            + safe(application.getJob() != null
+                                    ? application.getJob().getTitle()
+                                    : "the job")
+                            + " has been submitted successfully."
+            );
+
+        } catch (Exception ignored) {
+            // Email failure should not prevent
+            // application creation.
+        }
+    }
+
+    // =====================================================
+    // STATUS EMAIL
+    // =====================================================
+
+    private void sendStatusEmail(
+            Application application) {
+
+        try {
+            if (application == null ||
+                    application.getUser() == null ||
+                    application.getUser().getEmail() == null) {
+                return;
+            }
+
+            emailService.sendEmail(
+                    application.getUser().getEmail(),
+                    "Application Status Updated",
+                    "Your application status has been updated to "
+                            + safeStatus(application.getStatus())
+            );
+
+        } catch (Exception ignored) {
+            // Email failure should not break
+            // application status update.
+        }
+    }
+
+    // =====================================================
+    // EMAIL NORMALIZATION
+    // =====================================================
+
+    private String normalizeEmail(String email) {
+
+        if (email == null ||
+                email.trim().isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Authenticated user is required"
+            );
+        }
+
+        return email.trim()
+                .toLowerCase(Locale.ROOT);
+    }
+
+    // =====================================================
+    // SAFE TEXT
     // =====================================================
 
     private String safe(String value) {
 
-        return value == null ||
-                value.trim().isEmpty()
-                ? "N/A"
-                : value;
-    }
+        if (value == null ||
+                value.trim().isEmpty()) {
 
+            return "Job";
+        }
+
+        return value.trim();
+    }
 
     // =====================================================
     // SAFE STATUS
@@ -554,9 +779,13 @@ public class ApplicationService {
 
     private String safeStatus(String status) {
 
-        return status == null ||
-                status.trim().isEmpty()
-                ? "N/A"
-                : status;
+        if (status == null ||
+                status.trim().isEmpty()) {
+
+            return "UPDATED";
+        }
+
+        return status.trim()
+                .toUpperCase(Locale.ROOT);
     }
 }

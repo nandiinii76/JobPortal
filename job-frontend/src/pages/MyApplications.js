@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 
 function MyApplications() {
@@ -8,108 +8,7 @@ function MyApplications() {
 
     const [applications, setApplications] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState("");
-    const [deletingId, setDeletingId] = useState(null);
-
-    // =====================================================
-    // GET CURRENT USER
-    // =====================================================
-
-    const getUserId = () => {
-        return localStorage.getItem("userId");
-    };
-
-    const getToken = () => {
-        return localStorage.getItem("token");
-    };
-
-    // =====================================================
-    // FETCH APPLICATIONS
-    // =====================================================
-
-    const fetchApplications = async (showRefreshState = false) => {
-
-        const userId = getUserId();
-        const token = getToken();
-
-        if (!token || !userId) {
-
-            setError("Please login first.");
-            setApplications([]);
-            setLoading(false);
-
-            return;
-        }
-
-        try {
-
-            if (showRefreshState) {
-                setRefreshing(true);
-            } else {
-                setLoading(true);
-            }
-
-            setError("");
-
-            const response = await API.get(
-                `/applications/user/${userId}`
-            );
-
-            console.log(
-                "MY APPLICATIONS:",
-                response.data
-            );
-
-            const data = Array.isArray(response.data)
-                ? response.data
-                : [];
-
-            setApplications(data);
-
-        } catch (err) {
-
-            console.error(
-                "APPLICATION FETCH ERROR:",
-                err
-            );
-
-            if (err.response?.status === 401) {
-
-                setError(
-                    "Your session has expired. Please login again."
-                );
-
-                localStorage.removeItem("token");
-                localStorage.removeItem("userId");
-                localStorage.removeItem("role");
-
-                window.dispatchEvent(
-                    new Event("authChanged")
-                );
-
-            } else if (err.response?.status === 403) {
-
-                setError(
-                    "You are not authorized to view applications."
-                );
-
-            } else {
-
-                setError(
-                    "Failed to fetch applications."
-                );
-
-            }
-
-        } finally {
-
-            setLoading(false);
-            setRefreshing(false);
-
-        }
-
-    };
 
     // =====================================================
     // LOAD APPLICATIONS
@@ -117,97 +16,165 @@ function MyApplications() {
 
     useEffect(() => {
 
-        fetchApplications();
+        loadApplications();
 
     }, []);
 
     // =====================================================
-    // WITHDRAW APPLICATION
+    // FETCH MY APPLICATIONS
     // =====================================================
 
-    const withdrawApplication = async (applicationId) => {
-
-        if (!applicationId) {
-            return;
-        }
-
-        const confirmed = window.confirm(
-            "Are you sure you want to withdraw this application?"
-        );
-
-        if (!confirmed) {
-            return;
-        }
+    const loadApplications = async () => {
 
         try {
 
-            setDeletingId(applicationId);
+            setLoading(true);
+            setError("");
 
-            await API.delete(
-                `/applications/${applicationId}`
-            );
+            const token =
+                localStorage.getItem("token");
 
-            setApplications((previousApplications) =>
-                previousApplications.filter(
-                    (application) =>
-                        application.id !== applicationId
-                )
-            );
+            if (!token) {
 
-            alert(
-                "Application withdrawn successfully."
+                navigate("/login");
+
+                return;
+            }
+
+            /*
+             * SECURED ENDPOINT
+             *
+             * GET /applications/my
+             *
+             * The backend identifies the user
+             * from the JWT.
+             *
+             * Do NOT send userId.
+             */
+
+            const response =
+                await API.get(
+                    "/applications/my"
+                );
+
+            setApplications(
+                Array.isArray(response.data)
+                    ? response.data
+                    : []
             );
 
         } catch (err) {
 
             console.error(
-                "WITHDRAW APPLICATION ERROR:",
+                "Failed to load applications:",
                 err
             );
 
-            if (err.response?.status === 404) {
+            // ---------------------------------------------
+            // UNAUTHORIZED
+            // ---------------------------------------------
 
-                alert(
-                    "Application was not found."
-                );
+            if (
+                err.response?.status === 401
+            ) {
 
-            } else if (err.response?.status === 401) {
+                logout();
 
-                alert(
-                    "Your session has expired. Please login again."
-                );
-
-                navigate("/login");
-
-            } else {
-
-                const message =
-                    typeof err.response?.data === "string"
-                        ? err.response.data
-                        : err.response?.data?.message;
-
-                alert(
-                    message ||
-                    "Failed to withdraw application."
-                );
-
+                return;
             }
+
+            // ---------------------------------------------
+            // FORBIDDEN
+            // ---------------------------------------------
+
+            if (
+                err.response?.status === 403
+            ) {
+
+                setError(
+                    "You are not authorized to view your applications."
+                );
+
+                return;
+            }
+
+            // ---------------------------------------------
+            // OTHER ERROR
+            // ---------------------------------------------
+
+            setError(
+                getErrorMessage(
+                    err,
+                    "Failed to load your applications."
+                )
+            );
 
         } finally {
 
-            setDeletingId(null);
-
+            setLoading(false);
         }
-
     };
 
     // =====================================================
-    // STATUS COLOR
+    // LOGOUT
     // =====================================================
 
-    const getStatusColor = (status) => {
+    const logout = () => {
 
-        switch (status?.trim().toUpperCase()) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        localStorage.removeItem("role");
+        localStorage.removeItem("user");
+
+        window.dispatchEvent(
+            new Event("authChanged")
+        );
+
+        navigate("/login");
+    };
+
+    // =====================================================
+    // ERROR MESSAGE
+    // =====================================================
+
+    const getErrorMessage = (
+        err,
+        fallback
+    ) => {
+
+        const data =
+            err?.response?.data;
+
+        if (
+            typeof data === "string" &&
+            data.trim()
+        ) {
+
+            return data;
+        }
+
+        if (data?.message) {
+
+            return data.message;
+        }
+
+        if (data?.error) {
+
+            return data.error;
+        }
+
+        return fallback;
+    };
+
+    // =====================================================
+    // STATUS CLASS
+    // =====================================================
+
+    const getStatusClass = (status) => {
+
+        switch (
+            status?.toUpperCase()
+        ) {
 
             case "APPLIED":
                 return "bg-blue-100 text-blue-700";
@@ -226,63 +193,7 @@ function MyApplications() {
 
             default:
                 return "bg-gray-100 text-gray-700";
-
         }
-
-    };
-
-    // =====================================================
-    // STATUS ICON
-    // =====================================================
-
-    const getStatusIcon = (status) => {
-
-        switch (status?.trim().toUpperCase()) {
-
-            case "APPLIED":
-                return "📝";
-
-            case "SHORTLISTED":
-                return "⭐";
-
-            case "INTERVIEW":
-                return "🎤";
-
-            case "HIRED":
-                return "🎉";
-
-            case "REJECTED":
-                return "❌";
-
-            default:
-                return "📋";
-
-        }
-
-    };
-
-    // =====================================================
-    // FORMAT SALARY
-    // =====================================================
-
-    const formatSalary = (salary) => {
-
-        if (
-            salary === null ||
-            salary === undefined ||
-            salary === ""
-        ) {
-            return "Salary not specified";
-        }
-
-        const numericSalary = Number(salary);
-
-        if (Number.isNaN(numericSalary)) {
-            return `₹ ${salary}`;
-        }
-
-        return `₹ ${numericSalary.toLocaleString("en-IN")}`;
-
     };
 
     // =====================================================
@@ -292,13 +203,19 @@ function MyApplications() {
     const formatDate = (date) => {
 
         if (!date) {
-            return "Not available";
+            return "N/A";
         }
 
-        const parsedDate = new Date(date);
+        const parsedDate =
+            new Date(date);
 
-        if (Number.isNaN(parsedDate.getTime())) {
-            return "Not available";
+        if (
+            Number.isNaN(
+                parsedDate.getTime()
+            )
+        ) {
+
+            return "N/A";
         }
 
         return parsedDate.toLocaleDateString(
@@ -309,7 +226,59 @@ function MyApplications() {
                 year: "numeric"
             }
         );
+    };
 
+    // =====================================================
+    // GET JOB ID
+    // =====================================================
+
+    const getJobId = (application) => {
+
+        return (
+            application.jobId ??
+            application.job?.id
+        );
+    };
+
+    // =====================================================
+    // GET JOB TITLE
+    // =====================================================
+
+    const getJobTitle = (application) => {
+
+        return (
+            application.jobTitle ??
+            application.job?.title ??
+            "Job Title Not Available"
+        );
+    };
+
+    // =====================================================
+    // GET COMPANY
+    // =====================================================
+
+    const getCompany = (application) => {
+
+        return (
+            application.company ??
+            application.job?.company ??
+            "N/A"
+        );
+    };
+
+    // =====================================================
+    // VIEW JOB
+    // =====================================================
+
+    const viewJob = (jobId) => {
+
+        if (!jobId) {
+            return;
+        }
+
+        navigate(
+            `/jobs/${jobId}`
+        );
     };
 
     // =====================================================
@@ -322,26 +291,20 @@ function MyApplications() {
 
             <div className="min-h-screen bg-gray-100 flex items-center justify-center">
 
-                <div className="bg-white shadow-lg rounded-xl p-10 text-center">
+                <div className="text-center">
 
-                    <div className="text-4xl mb-4">
+                    <div className="text-3xl mb-4">
                         ⏳
                     </div>
 
-                    <h2 className="text-2xl font-bold">
-                        Loading Applications...
-                    </h2>
-
-                    <p className="text-gray-500 mt-2">
-                        Please wait.
+                    <p className="text-lg text-gray-600">
+                        Loading your applications...
                     </p>
 
                 </div>
 
             </div>
-
         );
-
     }
 
     // =====================================================
@@ -350,15 +313,15 @@ function MyApplications() {
 
     return (
 
-        <div className="min-h-screen bg-gray-100 py-10 px-6">
+        <div className="min-h-screen bg-gray-100 py-10">
 
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-6xl mx-auto px-4">
 
                 {/* =================================================
                     HEADER
                 ================================================= */}
 
-                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-10">
+                <div className="flex flex-wrap justify-between items-center mb-8">
 
                     <div>
 
@@ -366,144 +329,23 @@ function MyApplications() {
                             My Applications
                         </h1>
 
-                        <p className="text-gray-500 mt-2">
-                            Track all the jobs you have applied for.
+                        <p className="text-gray-600 mt-2">
+                            Track the jobs you have applied for.
                         </p>
 
                     </div>
 
-                    <div className="flex gap-3">
-
-                        <Link
-                            to="/jobs"
-                            className="
-                                bg-green-600
-                                hover:bg-green-700
-                                text-white
-                                px-5
-                                py-2
-                                rounded-lg
-                                font-semibold
-                                transition
-                            "
-                        >
-                            Browse Jobs
-                        </Link>
-
-                        <button
-                            onClick={() =>
-                                fetchApplications(true)
-                            }
-                            disabled={refreshing}
-                            className={`
-                                ${
-                                    refreshing
-                                        ? "bg-gray-400 cursor-not-allowed"
-                                        : "bg-blue-600 hover:bg-blue-700"
-                                }
-                                text-white
-                                px-5
-                                py-2
-                                rounded-lg
-                                font-semibold
-                                transition
-                            `}
-                        >
-                            {refreshing
-                                ? "Refreshing..."
-                                : "🔄 Refresh"}
-                        </button>
-
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            navigate("/jobs")
+                        }
+                        className="mt-4 sm:mt-0 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
+                    >
+                        Browse Jobs
+                    </button>
 
                 </div>
-
-                {/* =================================================
-                    SUMMARY
-                ================================================= */}
-
-                {!error && applications.length > 0 && (
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-
-                        <div className="bg-white rounded-xl shadow p-5">
-
-                            <p className="text-gray-500">
-                                Total Applications
-                            </p>
-
-                            <p className="text-3xl font-bold text-blue-600 mt-2">
-                                {applications.length}
-                            </p>
-
-                        </div>
-
-                        <div className="bg-white rounded-xl shadow p-5">
-
-                            <p className="text-gray-500">
-                                Applied
-                            </p>
-
-                            <p className="text-3xl font-bold text-blue-600 mt-2">
-
-                                {
-                                    applications.filter(
-                                        (application) =>
-                                            application.status
-                                                ?.toUpperCase() ===
-                                            "APPLIED"
-                                    ).length
-                                }
-
-                            </p>
-
-                        </div>
-
-                        <div className="bg-white rounded-xl shadow p-5">
-
-                            <p className="text-gray-500">
-                                Shortlisted
-                            </p>
-
-                            <p className="text-3xl font-bold text-yellow-600 mt-2">
-
-                                {
-                                    applications.filter(
-                                        (application) =>
-                                            application.status
-                                                ?.toUpperCase() ===
-                                            "SHORTLISTED"
-                                    ).length
-                                }
-
-                            </p>
-
-                        </div>
-
-                        <div className="bg-white rounded-xl shadow p-5">
-
-                            <p className="text-gray-500">
-                                Hired
-                            </p>
-
-                            <p className="text-3xl font-bold text-green-600 mt-2">
-
-                                {
-                                    applications.filter(
-                                        (application) =>
-                                            application.status
-                                                ?.toUpperCase() ===
-                                            "HIRED"
-                                    ).length
-                                }
-
-                            </p>
-
-                        </div>
-
-                    </div>
-
-                )}
 
                 {/* =================================================
                     ERROR
@@ -511,294 +353,195 @@ function MyApplications() {
 
                 {error && (
 
-                    <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-5 mb-8">
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-5 mb-6">
 
                         <p className="font-semibold">
                             {error}
                         </p>
 
-                        {error.includes("session") && (
+                        <button
+                            type="button"
+                            onClick={loadApplications}
+                            className="mt-3 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+                        >
+                            Try Again
+                        </button>
+
+                    </div>
+                )}
+
+                {/* =================================================
+                    NO APPLICATIONS
+                ================================================= */}
+
+                {!error &&
+                    applications.length === 0 && (
+
+                        <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+
+                            <div className="text-6xl mb-5">
+                                📄
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-gray-800">
+                                No Applications Yet
+                            </h2>
+
+                            <p className="text-gray-600 mt-3">
+                                You haven't applied for any jobs yet.
+                            </p>
 
                             <button
+                                type="button"
                                 onClick={() =>
-                                    navigate("/login")
+                                    navigate("/jobs")
                                 }
-                                className="
-                                    mt-4
-                                    bg-red-600
-                                    hover:bg-red-700
-                                    text-white
-                                    px-5
-                                    py-2
-                                    rounded-lg
-                                    font-semibold
-                                "
+                                className="mt-6 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg"
                             >
-                                Login Again
+                                Find Jobs
                             </button>
 
-                        )}
-
-                    </div>
-
-                )}
-
-                {/* =================================================
-                    EMPTY
-                ================================================= */}
-
-                {!error && applications.length === 0 && (
-
-                    <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-
-                        <div className="text-6xl mb-5">
-                            📄
                         </div>
-
-                        <h2 className="text-3xl font-bold text-gray-700">
-                            No Applications Yet
-                        </h2>
-
-                        <p className="text-gray-500 mt-3">
-                            Start applying for jobs to see your
-                            applications here.
-                        </p>
-
-                        <Link
-                            to="/jobs"
-                            className="
-                                inline-block
-                                mt-6
-                                bg-blue-600
-                                hover:bg-blue-700
-                                text-white
-                                px-6
-                                py-3
-                                rounded-lg
-                                font-semibold
-                            "
-                        >
-                            Browse Jobs
-                        </Link>
-
-                    </div>
-
-                )}
+                    )}
 
                 {/* =================================================
-                    APPLICATION CARDS
+                    APPLICATION LIST
                 ================================================= */}
 
-                {!error && applications.length > 0 && (
+                {!error &&
+                    applications.length > 0 && (
 
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        <div className="space-y-6">
 
-                        {applications.map((app) => {
+                            {applications.map(
+                                (application) => {
 
-                            const job = app.job || {};
+                                    const jobId =
+                                        getJobId(
+                                            application
+                                        );
 
-                            const status =
-                                app.status?.toUpperCase() ||
-                                "UNKNOWN";
+                                    return (
 
-                            return (
-
-                                <div
-                                    key={app.id}
-                                    className="
-                                        bg-white
-                                        rounded-xl
-                                        shadow-lg
-                                        p-6
-                                        hover:shadow-xl
-                                        transition
-                                    "
-                                >
-
-                                    {/* JOB TITLE */}
-
-                                    <h2 className="text-2xl font-bold text-blue-600">
-
-                                        {job.title ||
-                                            "Job title unavailable"}
-
-                                    </h2>
-
-                                    {/* COMPANY */}
-
-                                    <p className="font-semibold text-gray-800 mt-2">
-
-                                        🏢{" "}
-                                        {job.company ||
-                                            "Company not specified"}
-
-                                    </p>
-
-                                    {/* LOCATION */}
-
-                                    <p className="text-gray-500 mt-1">
-
-                                        📍{" "}
-                                        {job.location ||
-                                            "Location not specified"}
-
-                                    </p>
-
-                                    {/* SALARY */}
-
-                                    <p className="mt-4 font-bold text-green-700">
-
-                                        {formatSalary(
-                                            job.salary
-                                        )}
-
-                                    </p>
-
-                                    {/* DESCRIPTION */}
-
-                                    <p className="text-gray-600 mt-4 line-clamp-3">
-
-                                        {job.description ||
-                                            "No job description available."}
-
-                                    </p>
-
-                                    {/* APPLICATION DATE */}
-
-                                    <div className="mt-4 text-sm text-gray-500">
-
-                                        <p>
-                                            Applied On:{" "}
-                                            <strong>
-                                                {formatDate(
-                                                    app.createdAt
-                                                )}
-                                            </strong>
-                                        </p>
-
-                                        {app.updatedAt && (
-
-                                            <p className="mt-1">
-                                                Last Updated:{" "}
-                                                <strong>
-                                                    {formatDate(
-                                                        app.updatedAt
-                                                    )}
-                                                </strong>
-                                            </p>
-
-                                        )}
-
-                                    </div>
-
-                                    {/* STATUS */}
-
-                                    <div className="mt-5">
-
-                                        <span
-                                            className={`
-                                                inline-flex
-                                                items-center
-                                                gap-2
-                                                px-4
-                                                py-2
-                                                rounded-full
-                                                font-semibold
-                                                ${getStatusColor(status)}
-                                            `}
+                                        <div
+                                            key={
+                                                application.id
+                                            }
+                                            className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition"
                                         >
 
-                                            <span>
-                                                {getStatusIcon(status)}
-                                            </span>
+                                            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-5">
 
-                                            {status}
+                                                {/* =================================================
+                                                    JOB INFORMATION
+                                                ================================================= */}
 
-                                        </span>
+                                                <div className="flex-1">
 
-                                    </div>
+                                                    <h2 className="text-2xl font-bold text-blue-600">
 
-                                    {/* ACTIONS */}
+                                                        {getJobTitle(
+                                                            application
+                                                        )}
 
-                                    <div className="mt-6 flex flex-col gap-3">
+                                                    </h2>
 
-                                        {job.id && (
+                                                    <p className="text-lg text-gray-700 mt-2">
 
-                                            <Link
-                                                to={`/jobs/${job.id}`}
-                                                className="
-                                                    w-full
-                                                    text-center
-                                                    bg-blue-600
-                                                    hover:bg-blue-700
-                                                    text-white
-                                                    px-4
-                                                    py-2
-                                                    rounded-lg
-                                                    font-semibold
-                                                "
-                                            >
-                                                View Job
-                                            </Link>
+                                                        <strong>
+                                                            Company:
+                                                        </strong>{" "}
 
-                                        )}
+                                                        {getCompany(
+                                                            application
+                                                        )}
 
-                                        {/* WITHDRAW */}
+                                                    </p>
 
-                                        {status === "APPLIED" && (
+                                                    <p className="text-gray-500 mt-2">
 
-                                            <button
-                                                onClick={() =>
-                                                    withdrawApplication(
-                                                        app.id
-                                                    )
-                                                }
-                                                disabled={
-                                                    deletingId ===
-                                                    app.id
-                                                }
-                                                className={`
-                                                    w-full
-                                                    px-4
-                                                    py-2
-                                                    rounded-lg
-                                                    font-semibold
-                                                    transition
-                                                    ${
-                                                        deletingId ===
-                                                        app.id
-                                                            ? "bg-gray-400 cursor-not-allowed text-white"
-                                                            : "bg-red-100 hover:bg-red-200 text-red-700"
-                                                    }
-                                                `}
-                                            >
+                                                        Applied on{" "}
 
-                                                {deletingId === app.id
-                                                    ? "Withdrawing..."
-                                                    : "Withdraw Application"}
+                                                        <strong>
+                                                            {formatDate(
+                                                                application.createdAt
+                                                            )}
+                                                        </strong>
 
-                                            </button>
+                                                    </p>
 
-                                        )}
+                                                    {application.updatedAt && (
 
-                                    </div>
+                                                        <p className="text-gray-500 mt-1">
 
-                                </div>
+                                                            Last updated:{" "}
 
-                            );
+                                                            {formatDate(
+                                                                application.updatedAt
+                                                            )}
 
-                        })}
+                                                        </p>
+                                                    )}
 
-                    </div>
+                                                </div>
 
-                )}
+                                                {/* =================================================
+                                                    STATUS
+                                                ================================================= */}
+
+                                                <div>
+
+                                                    <span
+                                                        className={`inline-block px-4 py-2 rounded-full font-semibold ${getStatusClass(
+                                                            application.status
+                                                        )}`}
+                                                    >
+
+                                                        {application.status ||
+                                                            "UNKNOWN"}
+
+                                                    </span>
+
+                                                </div>
+
+                                            </div>
+
+                                            {/* =================================================
+                                                ACTIONS
+                                            ================================================= */}
+
+                                            <div className="flex flex-wrap gap-3 mt-6">
+
+                                                {jobId && (
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            viewJob(
+                                                                jobId
+                                                            )
+                                                        }
+                                                        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg"
+                                                    >
+                                                        View Job
+                                                    </button>
+
+                                                )}
+
+                                            </div>
+
+                                        </div>
+                                    );
+                                }
+                            )}
+
+                        </div>
+                    )}
 
             </div>
 
         </div>
-
     );
-
 }
 
 export default MyApplications;

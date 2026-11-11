@@ -1,10 +1,9 @@
-
 package com.job_portal.job.controller;
 
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import com.job_portal.job.model.SavedJob;
@@ -12,21 +11,34 @@ import com.job_portal.job.service.SavedJobService;
 
 @RestController
 @RequestMapping("/saved-jobs")
-@CrossOrigin(origins = "*")
 public class SavedJobController {
 
-    @Autowired
-    private SavedJobService savedJobService;
+    private final SavedJobService savedJobService;
 
-    // ==========================
-    // Save Job
-    // ==========================
+    public SavedJobController(SavedJobService savedJobService) {
+        this.savedJobService = savedJobService;
+    }
+
+    // =====================================================
+    // SAVE JOB
+    // =====================================================
+
     @PostMapping
     public ResponseEntity<SavedJob> saveJob(
-            @RequestParam Long userId,
-            @RequestParam Long jobId) {
+            @RequestParam Long jobId,
+            Authentication authentication) {
 
-        SavedJob savedJob = savedJobService.saveJob(userId, jobId);
+        if (authentication == null ||
+                authentication.getName() == null) {
+
+            return ResponseEntity.status(401).build();
+        }
+
+        SavedJob savedJob =
+                savedJobService.saveJob(
+                        authentication.getName(),
+                        jobId
+                );
 
         if (savedJob == null) {
             return ResponseEntity.badRequest().build();
@@ -35,55 +47,98 @@ public class SavedJobController {
         return ResponseEntity.ok(savedJob);
     }
 
-    // ==========================
-    // User Saved Jobs
-    // ==========================
-    @GetMapping("/{userId}")
+    // =====================================================
+    // GET MY SAVED JOBS
+    // =====================================================
+
+    @GetMapping
     public ResponseEntity<List<SavedJob>> getSavedJobs(
-            @PathVariable Long userId) {
+            Authentication authentication) {
+
+        if (authentication == null ||
+                authentication.getName() == null) {
+
+            return ResponseEntity.status(401).build();
+        }
 
         return ResponseEntity.ok(
-                savedJobService.getSavedJobs(userId));
+                savedJobService.getSavedJobs(
+                        authentication.getName()
+                )
+        );
     }
 
-    // ==========================
-    // Remove Saved Job
-    // ==========================
+    // =====================================================
+    // REMOVE SAVED JOB
+    // =====================================================
+
     @DeleteMapping
     public ResponseEntity<String> removeSavedJob(
-            @RequestParam Long userId,
-            @RequestParam Long jobId) {
+            @RequestParam Long jobId,
+            Authentication authentication) {
 
-        boolean removed = savedJobService.removeSavedJob(userId, jobId);
+        if (authentication == null ||
+                authentication.getName() == null) {
+
+            return ResponseEntity.status(401).build();
+        }
+
+        boolean removed =
+                savedJobService.removeSavedJob(
+                        authentication.getName(),
+                        jobId
+                );
 
         if (!removed) {
             return ResponseEntity.notFound().build();
         }
 
-        return ResponseEntity.ok("Saved job removed successfully.");
+        return ResponseEntity.ok(
+                "Saved job removed successfully."
+        );
     }
 
-    // ==========================
-    // Check Saved
-    // ==========================
+    // =====================================================
+    // CHECK WHETHER JOB IS SAVED
+    // =====================================================
+
     @GetMapping("/check")
     public ResponseEntity<Boolean> isSaved(
-            @RequestParam Long userId,
-            @RequestParam Long jobId) {
+            @RequestParam Long jobId,
+            Authentication authentication) {
+
+        if (authentication == null ||
+                authentication.getName() == null) {
+
+            return ResponseEntity.status(401).build();
+        }
 
         return ResponseEntity.ok(
-                savedJobService.isSaved(userId, jobId));
+                savedJobService.isSaved(
+                        authentication.getName(),
+                        jobId
+                )
+        );
     }
 
-    // ==========================
-    // Saved Jobs Count
-    // ==========================
-    @GetMapping("/count/{userId}")
+    // =====================================================
+    // SAVED JOB COUNT
+    // =====================================================
+
+    @GetMapping("/count")
     public ResponseEntity<Long> totalSavedJobs(
-            @PathVariable Long userId) {
+            Authentication authentication) {
+
+        if (authentication == null ||
+                authentication.getName() == null) {
+
+            return ResponseEntity.status(401).build();
+        }
 
         return ResponseEntity.ok(
-                savedJobService.totalSavedJobs(userId));
+                savedJobService.totalSavedJobs(
+                        authentication.getName()
+                )
+        );
     }
 }
-
